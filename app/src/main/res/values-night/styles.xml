@@ -24,15 +24,11 @@
         <item name="colorOutline">@color/hans_outline</item>
         <item name="android:colorBackground">@color/hans_surface</item>
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionModeOverlay">true</item>
-    </style>
-
-    <style name="HansPolicy.SectionTitle" parent="TextAppearance.Material3.TitleSmall">
-        <item name="android:textColor">?attr/colorPrimary</item>
     </style>
 </resources>

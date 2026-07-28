@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hans_primary">#70DBAD</color>
+    <color name="hans_on_primary">#003826</color>
+    <color name="hans_primary_container">#005138</color>
+    <color name="hans_on_primary_container">#8CF8C8</color>
+    <color name="hans_secondary">#B5CCBE</color>
+    <color name="hans_on_secondary">#20352C</color>
+    <color name="hans_secondary_container">#374B42</color>
+    <color name="hans_on_secondary_container">#D1E8DA</color>
+    <color name="hans_tertiary">#A5CDDF</color>
+    <color name="hans_on_tertiary">#063543</color>
+    <color name="hans_tertiary_container">#244C5B</color>
+    <color name="hans_on_tertiary_container">#C1E8FC</color>
+    <color name="hans_error">#FFB4AB</color>
+    <color name="hans_on_error">#690005</color>
+    <color name="hans_error_container">#93000A</color>
+    <color name="hans_on_error_container">#FFDAD6</color>
+    <color name="hans_surface">#101411</color>
+    <color name="hans_on_surface">#E1E3DF</color>
+    <color name="hans_surface_variant">#414943</color>
+    <color name="hans_on_surface_variant">#C1C9C3</color>
+    <color name="hans_outline">#8B938D</color>
+</resources>

@@ -1,6 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Hans Policy</string>
+    <string name="app_subtitle">Oplus system_server 冻结策略</string>
+    <string name="status_waiting">等待 Hook 状态</string>
+    <string name="status_not_connected">模块未连接 system_server</string>
+    <string name="status_no_report">本次启动未收到上报 · 检查系统框架作用域与模块启用状态</string>
+    <string name="status_previous_boot">当前仅有上次启动的状态 · 需要重新加载模块</string>
+    <string name="status_connected">Hook 已连接 · %1$d 个目标</string>
+    <string name="status_revision">system revision %1$d · local revision %2$d%3$s</string>
+    <string name="status_abnormal">Hook 状态异常 · %1$d 个目标</string>
+    <string name="status_incomplete">核心 Hook 未完整安装</string>
+    <string name="master_title">应用冻结策略覆盖</string>
+    <string name="master_summary">关闭时所有规则均不介入</string>
+    <string name="master_switch_description">总开关</string>
+    <string name="rules_title">应用规则</string>
+    <string name="rule_count">%1$d 条</string>
+    <string name="add_rule">添加规则</string>
+    <string name="empty_rules_title">暂无应用规则</string>
+    <string name="empty_rules_summary">添加应用后，可按包名覆盖冻结策略</string>
+    <string name="edit_rule">编辑应用规则</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="delete">删除</string>
+    <string name="delete_rule">删除规则</string>
+    <string name="package_name">包名</string>
+    <string name="package_placeholder">com.example.app</string>
+    <string name="rule_enabled">启用此规则</string>
+    <string name="full_exempt">完全豁免 Hans</string>
+    <string name="section_timing">状态时序</string>
+    <string name="custom_timing">自定义 R / M / F 时序</string>
+    <string name="r_to_m_delay">R → M 延时</string>
+    <string name="m_to_f_delay">M → F 延时</string>
+    <string name="seconds_suffix">秒</string>
+    <string name="section_packet_wake">网络包唤醒</string>
+    <string name="packet_wake_mode">处理方式</string>
+    <string name="packet_wake_cooldown">最短唤醒间隔</string>
+    <string name="custom_packet_refreeze">自定义网络唤醒后保持时间</string>
+    <string name="packet_refreeze_delay">再次冻结延时</string>
+    <string name="section_freeze_sources">阻止冻结来源</string>
+    <string name="freeze_normal">普通状态机冻结</string>
+    <string name="freeze_fast">Fast Freezer</string>
+    <string name="freeze_super">Super Freeze</string>
+    <string name="freeze_preload">预加载冻结</string>
+    <string name="section_resources">冻结时保留资源</string>
+    <string name="keep_network">网络与现有连接</string>
+    <string name="keep_service">Service 调度</string>
+    <string name="keep_job">Job 调度</string>
+    <string name="keep_broadcast">广播投递</string>
+    <string name="keep_alarm">闹钟与定时器</string>
+    <string name="keep_binder">异步 Binder</string>
+    <string name="keep_sensor">传感器</string>
+    <string name="keep_gps">定位 / GPS</string>
+    <string name="keep_wake_lock">WakeLock</string>
+    <string name="keep_audio">音频</string>
+    <string name="keep_bt_scan">蓝牙扫描</string>
+    <string name="invalid_delay">延时必须是整数</string>
+    <string name="rule_disabled">规则已停用</string>
+    <string name="rule_full_exempt">完全豁免 Hans 冻结与限制</string>
+    <string name="rule_custom_timing">R→M %1$d秒 / M→F %2$d秒</string>
+    <string name="rule_block_freeze">阻止 %1$d 类冻结</string>
+    <string name="rule_block_packet">禁止网络包唤醒</string>
+    <string name="rule_throttle_packet">网络唤醒间隔 %1$d秒</string>
+    <string name="rule_packet_refreeze">网络唤醒保持 %1$d秒</string>
+    <string name="rule_keep_resources">保留 %1$d 项资源</string>
+    <string name="rule_follow_system">跟随系统策略</string>
+    <string name="rule_chevron_description">编辑规则</string>
+    <string name="packet_wake_allow">跟随系统</string>
+    <string name="packet_wake_throttle">限制唤醒频率</string>
+    <string name="packet_wake_block">完全阻止唤醒</string>
+    <string-array name="packet_wake_modes">
+        <item>@string/packet_wake_allow</item>
+        <item>@string/packet_wake_throttle</item>
+        <item>@string/packet_wake_block</item>
+    </string-array>
     <string-array name="xposed_scope">
         <item>android</item>
     </string-array>
