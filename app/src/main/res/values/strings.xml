@@ -60,6 +60,27 @@
     <string name="packet_wake_cooldown">最短唤醒间隔</string>
     <string name="custom_packet_refreeze">自定义网络唤醒后保持时间</string>
     <string name="packet_refreeze_delay">再次冻结延时</string>
+    <string name="section_alarm_wake">闹钟唤醒</string>
+    <string name="alarm_wake_mode">处理方式</string>
+    <string name="alarm_wake_cooldown">最短唤醒间隔</string>
+    <string name="custom_alarm_refreeze">自定义闹钟唤醒后保持时间</string>
+    <string name="alarm_refreeze_delay">再次冻结延时</string>
+    <string name="section_wake_sources">阻止解冻来源</string>
+    <string name="wake_sources_summary">按来源阻止已冻结应用被唤醒</string>
+    <string name="wake_async_binder">异步 Binder（含 W_AsyncBinder）</string>
+    <string name="wake_sync_binder">同步 Binder</string>
+    <string name="wake_trans_binder">事务 Binder</string>
+    <string name="wake_signal">进程 Signal</string>
+    <string name="wake_activity_input">Activity / Input（高风险）</string>
+    <string name="wake_service">Service / Bind / Restart</string>
+    <string name="wake_broadcast">Broadcast</string>
+    <string name="wake_provider">Content Provider</string>
+    <string name="wake_job_sync">Job / Sync</string>
+    <string name="wake_wakelock">WakeLock</string>
+    <string name="wake_audio_media">音频 / 媒体 / 蓝牙控制</string>
+    <string name="wake_connectivity">网络状态 / 导航 / 流量</string>
+    <string name="wake_system_scene">系统场景与生命周期（高风险）</string>
+    <string name="wake_other">其他与未来未知原因</string>
     <string name="section_freeze_sources">阻止冻结来源</string>
     <string name="freeze_normal">普通状态机冻结</string>
     <string name="freeze_fast">Fast Freezer</string>
@@ -85,6 +106,10 @@
     <string name="rule_block_packet">禁止网络包唤醒</string>
     <string name="rule_throttle_packet">网络唤醒间隔 %1$d秒</string>
     <string name="rule_packet_refreeze">网络唤醒保持 %1$d秒</string>
+    <string name="rule_block_alarm">禁止闹钟唤醒</string>
+    <string name="rule_throttle_alarm">闹钟唤醒间隔 %1$d秒</string>
+    <string name="rule_alarm_refreeze">闹钟唤醒保持 %1$d秒</string>
+    <string name="rule_block_wake_sources">阻止 %1$d 类解冻</string>
     <string name="rule_keep_resources">保留 %1$d 项资源</string>
     <string name="rule_follow_system">跟随系统策略</string>
     <string name="rule_chevron_description">编辑规则</string>
@@ -92,6 +117,11 @@
     <string name="packet_wake_throttle">限制唤醒频率</string>
     <string name="packet_wake_block">完全阻止唤醒</string>
     <string-array name="packet_wake_modes">
+        <item>@string/packet_wake_allow</item>
+        <item>@string/packet_wake_throttle</item>
+        <item>@string/packet_wake_block</item>
+    </string-array>
+    <string-array name="alarm_wake_modes">
         <item>@string/packet_wake_allow</item>
         <item>@string/packet_wake_throttle</item>
         <item>@string/packet_wake_block</item>

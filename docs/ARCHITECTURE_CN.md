@@ -45,7 +45,7 @@ Hans Policy 只修改 Oplus Hans 内部决策，不会：
 重新解析包 UID，然后调用 ROM 自己的
 `hansUnFreeze(uid, "force", "HansPolicy")`。
 
-## 22 个 Hook
+## 27 个 Hook
 
 | 区域 | 目标 | 用途 |
 | --- | --- | --- |
@@ -53,11 +53,16 @@ Hans Policy 只修改 Oplus Hans 内部决策，不会：
 | 运行时 | `OplusHansManager.init` | 获取 context 与 manager。 |
 | 运行时 | `OplusHansManager.bootCompleted` | 冷启动初始化后备入口。 |
 | 时序 | `OplusHansDBConfig.getRtoMCheckTime` | 按包覆盖 R 到 M。 |
-| 时序 | `OplusHansDBConfig.getMtoFCheckTime` | 按包覆盖 M 到 F 和 Packet 专用时间。 |
+| 时序 | `OplusHansDBConfig.getMtoFCheckTime` | 按包覆盖 M 到 F、Packet 和 Alarm 专用时间。 |
 | 豁免 | `OplusHansManager.isHansCoreApp` | 组件策略豁免。 |
 | 豁免 | `OplusHansManager.isLcdOnNonRestrictPkg` | 标准状态机豁免。 |
 | 冻结守门 | `HansCGroup.hansFreezeLocked` | 按来源阻止冻结且不伪造成功。 |
-| 网络包 | `OplusHansManager.unfreezeForKernel` | 控制 `type=4` Packet 唤醒。 |
+| 解冻守门 | `HansCGroup.hansUnfreezeLocked` | 按 reason 最终拦截框架与场景解冻。 |
+| 内核唤醒 | `OplusHansManager.unfreezeForKernel` | 在 native thaw 前控制 Binder、Signal 和 Packet。 |
+| 闹钟 | `OplusHansManager.checkAlarmIfRestricted` | 控制 Alarm 唤醒投递。 |
+| 闹钟 | `OplusHansManager.enqueueProxyBroadcastLocked` | 拦截已阻止 Alarm 批次中的后续广播。 |
+| 闹钟 | `OplusHansManager.unFreezeForwl(List, String)` | 从 Alarm 关联的 WakeLock 解冻中移除受控 UID。 |
+| 闹钟 | `OplusHansManager.unFreezeForwl(int, String)` | 阻止 Alarm 关联的单 UID WakeLock 解冻。 |
 | 资源 | `Action.proxyService` | 保留 Service 调度。 |
 | 资源 | `Action.proxyBroadcast` | 保留广播投递。 |
 | 资源 | `Action.proxyJob` | 保留 Job 调度。 |
@@ -81,6 +86,41 @@ Hans Policy 只修改 Oplus Hans 内部决策，不会：
 Packet 拦截日志对每个 UID 限制为 60 秒一条，避免网络包风暴演变成 `system_server`
 日志风暴。
 
+## 解冻来源控制
+
+`unfreezeForKernel` 会先调用
+`OplusHansProcessFreeze.unfreezeProcessForKernel`，之后才进入 Hans 状态转换。因此模块在
+厂商方法执行前分类内核 type 0-3，分别控制异步 Binder、同步 Binder、事务 Binder 和
+Signal；type 4 继续交给支持允许/限频/阻止的 Packet 专用策略。拦截日志包含 caller
+PID/UID、AIDL descriptor 与 transaction code。
+
+`HansCGroup.hansUnfreezeLocked(OplusHansPackage, reason, cpnInfo)` 是框架侧放开防火墙和
+cgroup thaw 前的最终公共入口。模块将 reason 分为 Activity/Input、Service、Broadcast、
+Provider、Job/Sync、WakeLock、音频媒体、连接状态、系统场景、Binder、Signal 与 Other；
+无法识别的新字符串会进入 Other，因此未来新增厂商 reason 仍可被控制。模块自己的
+`force/HansPolicy` 清理和“完全豁免”规则始终放行。
+
+Activity/Input 与系统场景默认不勾选。启用后可能阻止应用正常前台启动或系统生命周期
+恢复。
+
+## Alarm 唤醒状态
+
+`checkAlarmIfRestricted(uid, packageName, action)` 在 AlarmManager 投递前执行。阻止或
+限频命中时模块返回 `true`，使事件保持在 Hans 代理路径中，不执行
+`unfreezeAndTransState(..., "Alarm", action)`。限频状态按当前 UID 记录，策略重载时清空；
+拦截日志同样按 UID 限制为 60 秒一条。
+
+AlarmManager 可能在一个批次中为同一 UID 投递多个 Alarm。在当前固件上，只有批次首项
+一定经过 `checkAlarmIfRestricted`，后续项可能继续进入广播链路并触发
+`reason=Broadcast`。阻止 Alarm 时，模块会为当前 UID 开启 5 秒闸门；在这段窄窗口内，
+`enqueueProxyBroadcastLocked` 中属于同一策略包的广播会被视为已处理，避免同批事件绕过
+Alarm 决策。策略重载时也会清空闸门。
+
+同一批事件还可能更新系统 WakeLock：即使 WorkChain 属于其他应用与 JobScheduler，
+`WorkSource` 仍可能包含目标 UID。厂商实现通过 `unFreezeForwl` 的两个重载产生
+`acquireWakeLock` 与 `updateWLWorkSource` 解冻。5 秒闸门有效时，模块阻止受控单 UID
+调用，并只从列表调用中移除受控 UID，不影响列表内其他系统或应用 UID。
+
 ## 失败策略
 
 - Hook 安装错误会记录并显示在管理界面。
@@ -88,4 +128,4 @@ Packet 拦截日志对每个 UID 限制为 60 秒一条，避免网络包风暴�
 - Provider 读取失败时保留旧 snapshot，并定时重试。
 - 包名解析失败时允许厂商原操作。
 - 单个决策异常时保留原返回值。
-- schema v1/v2 自动迁移到 v3，旧 user ID 被丢弃。
+- schema v1-v4 自动迁移到 v5，旧 user ID 被丢弃。

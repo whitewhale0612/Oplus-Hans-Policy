@@ -39,6 +39,10 @@ public final class PolicyCodec {
             item.put("packetWakeMode", rule.packetWakeMode);
             item.put("packetWakeCooldownMs", rule.packetWakeCooldownMs);
             item.put("packetRefreezeMs", rule.packetRefreezeMs);
+            item.put("alarmWakeMode", rule.alarmWakeMode);
+            item.put("alarmWakeCooldownMs", rule.alarmWakeCooldownMs);
+            item.put("alarmRefreezeMs", rule.alarmRefreezeMs);
+            item.put("blockedWakeSources", rule.blockedWakeSources);
             rules.put(item);
         }
         root.put("rules", rules);
@@ -54,7 +58,8 @@ public final class PolicyCodec {
         if (version == 1) {
             return decodeVersion1(root);
         }
-        if (version != 2 && version != Constants.SCHEMA_VERSION) {
+        if (version != 2 && version != 3 && version != 4
+                && version != Constants.SCHEMA_VERSION) {
             throw new JSONException("Unsupported policy schema");
         }
         List<PolicyRule> rules = new ArrayList<>();
@@ -76,11 +81,21 @@ public final class PolicyCodec {
                 long packetWakeCooldownMs = item.optLong("packetWakeCooldownMs",
                         PolicyRule.DEFAULT_PACKET_WAKE_COOLDOWN_MS);
                 long packetRefreezeMs = item.optLong("packetRefreezeMs", 0L);
+                int alarmWakeMode = item.optInt("alarmWakeMode",
+                        PolicyRule.ALARM_WAKE_ALLOW);
+                long alarmWakeCooldownMs = item.optLong("alarmWakeCooldownMs",
+                        PolicyRule.DEFAULT_ALARM_WAKE_COOLDOWN_MS);
+                long alarmRefreezeMs = item.optLong("alarmRefreezeMs", 0L);
+                int blockedWakeSources = item.optInt("blockedWakeSources", 0);
                 validate(packageName, rToM, mToF, blockedSources, bypassFlags,
-                        packetWakeMode, packetWakeCooldownMs, packetRefreezeMs);
+                        packetWakeMode, packetWakeCooldownMs, packetRefreezeMs,
+                        alarmWakeMode, alarmWakeCooldownMs, alarmRefreezeMs,
+                        blockedWakeSources);
                 rules.add(new PolicyRule(packageName, enabled, fullExempt, customTiming,
                         rToM, mToF, blockedSources, bypassFlags, keepNetwork,
-                        packetWakeMode, packetWakeCooldownMs, packetRefreezeMs));
+                        packetWakeMode, packetWakeCooldownMs, packetRefreezeMs,
+                        alarmWakeMode, alarmWakeCooldownMs, alarmRefreezeMs,
+                        blockedWakeSources));
             }
         }
         return new PolicySnapshot(root.optBoolean("enabled", false),
@@ -100,7 +115,9 @@ public final class PolicyCodec {
                 long mToF = item.optLong("mToFMs", 60_000L);
                 validate(packageName, rToM, mToF, 0, 0,
                         PolicyRule.PACKET_WAKE_ALLOW,
-                        PolicyRule.DEFAULT_PACKET_WAKE_COOLDOWN_MS, 0L);
+                        PolicyRule.DEFAULT_PACKET_WAKE_COOLDOWN_MS, 0L,
+                        PolicyRule.ALARM_WAKE_ALLOW,
+                        PolicyRule.DEFAULT_ALARM_WAKE_COOLDOWN_MS, 0L, 0);
 
                 PolicyRule previous = migrated.get(packageName);
                 boolean fullExempt = "EXEMPT".equals(mode)
@@ -115,7 +132,9 @@ public final class PolicyCodec {
                 migrated.put(packageName, new PolicyRule(packageName, mergedEnabled,
                         fullExempt, customTiming, mergedRToM, mergedMToF, 0, 0, false,
                         PolicyRule.PACKET_WAKE_ALLOW,
-                        PolicyRule.DEFAULT_PACKET_WAKE_COOLDOWN_MS, 0L));
+                        PolicyRule.DEFAULT_PACKET_WAKE_COOLDOWN_MS, 0L,
+                        PolicyRule.ALARM_WAKE_ALLOW,
+                        PolicyRule.DEFAULT_ALARM_WAKE_COOLDOWN_MS, 0L, 0));
             }
         }
         return new PolicySnapshot(root.optBoolean("enabled", false),
@@ -126,7 +145,9 @@ public final class PolicyCodec {
     public static void validate(String packageName, long rToM, long mToF,
                                 int blockedSources, int bypassFlags,
                                 int packetWakeMode, long packetWakeCooldownMs,
-                                long packetRefreezeMs) {
+                                long packetRefreezeMs, int alarmWakeMode,
+                                long alarmWakeCooldownMs, long alarmRefreezeMs,
+                                int blockedWakeSources) {
         if (packageName == null || !PACKAGE_PATTERN.matcher(packageName).matches()) {
             throw new IllegalArgumentException("无效包名");
         }
@@ -148,6 +169,19 @@ public final class PolicyCodec {
         }
         if (packetRefreezeMs != 0L && !validDelay(packetRefreezeMs)) {
             throw new IllegalArgumentException("网络唤醒保持时长须在 1 秒到 24 小时之间");
+        }
+        if (alarmWakeMode < PolicyRule.ALARM_WAKE_ALLOW
+                || alarmWakeMode > PolicyRule.ALARM_WAKE_BLOCK) {
+            throw new IllegalArgumentException("闹钟唤醒模式无效");
+        }
+        if (!validDelay(alarmWakeCooldownMs)) {
+            throw new IllegalArgumentException("闹钟唤醒间隔须在 1 秒到 24 小时之间");
+        }
+        if (alarmRefreezeMs != 0L && !validDelay(alarmRefreezeMs)) {
+            throw new IllegalArgumentException("闹钟唤醒保持时长须在 1 秒到 24 小时之间");
+        }
+        if ((blockedWakeSources & ~PolicyRule.ALL_WAKE_SOURCES) != 0) {
+            throw new IllegalArgumentException("唤醒来源掩码无效");
         }
     }
 

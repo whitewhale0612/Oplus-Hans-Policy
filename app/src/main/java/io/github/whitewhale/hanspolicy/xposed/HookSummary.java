@@ -26,7 +26,8 @@ final class HookSummary {
                 && targets.contains("OplusHansDBConfig.getRtoMCheckTime")
                 && targets.contains("OplusHansDBConfig.getMtoFCheckTime")
                 && targets.contains("HansCGroup.hansFreezeLocked")
-                && targets.contains("OplusHansManager.unfreezeForKernel(packet)");
+                && targets.contains("HansCGroup.hansUnfreezeLocked(source gate)")
+                && targets.contains("OplusHansManager.unfreezeForKernel(source gate)");
     }
 
     String targetsText() {

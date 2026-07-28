@@ -290,6 +290,42 @@ public final class MainActivity extends AppCompatActivity {
                 form.findViewById(R.id.custom_packet_refreeze_input);
         View packetRefreezeTiming = form.findViewById(R.id.packet_refreeze_options);
         EditText packetRefreezeInput = form.findViewById(R.id.packet_refreeze_input);
+        MaterialAutoCompleteTextView alarmWakeModeInput =
+                form.findViewById(R.id.alarm_wake_mode_input);
+        View alarmThrottle = form.findViewById(R.id.alarm_throttle_options);
+        EditText alarmWakeCooldownInput = form.findViewById(R.id.alarm_wake_cooldown_input);
+        MaterialSwitch customAlarmRefreezeInput =
+                form.findViewById(R.id.custom_alarm_refreeze_input);
+        View alarmRefreezeTiming = form.findViewById(R.id.alarm_refreeze_options);
+        EditText alarmRefreezeInput = form.findViewById(R.id.alarm_refreeze_input);
+        MaterialCheckBox blockWakeAsyncBinderInput =
+                form.findViewById(R.id.block_wake_async_binder_input);
+        MaterialCheckBox blockWakeSyncBinderInput =
+                form.findViewById(R.id.block_wake_sync_binder_input);
+        MaterialCheckBox blockWakeTransBinderInput =
+                form.findViewById(R.id.block_wake_trans_binder_input);
+        MaterialCheckBox blockWakeSignalInput =
+                form.findViewById(R.id.block_wake_signal_input);
+        MaterialCheckBox blockWakeActivityInput =
+                form.findViewById(R.id.block_wake_activity_input);
+        MaterialCheckBox blockWakeServiceInput =
+                form.findViewById(R.id.block_wake_service_input);
+        MaterialCheckBox blockWakeBroadcastInput =
+                form.findViewById(R.id.block_wake_broadcast_input);
+        MaterialCheckBox blockWakeProviderInput =
+                form.findViewById(R.id.block_wake_provider_input);
+        MaterialCheckBox blockWakeJobSyncInput =
+                form.findViewById(R.id.block_wake_job_sync_input);
+        MaterialCheckBox blockWakeWakelockInput =
+                form.findViewById(R.id.block_wake_wakelock_input);
+        MaterialCheckBox blockWakeAudioMediaInput =
+                form.findViewById(R.id.block_wake_audio_media_input);
+        MaterialCheckBox blockWakeConnectivityInput =
+                form.findViewById(R.id.block_wake_connectivity_input);
+        MaterialCheckBox blockWakeSystemSceneInput =
+                form.findViewById(R.id.block_wake_system_scene_input);
+        MaterialCheckBox blockWakeOtherInput =
+                form.findViewById(R.id.block_wake_other_input);
         MaterialCheckBox blockNormalInput = form.findViewById(R.id.block_normal_input);
         MaterialCheckBox blockFastInput = form.findViewById(R.id.block_fast_input);
         MaterialCheckBox blockSuperInput = form.findViewById(R.id.block_super_input);
@@ -324,6 +360,15 @@ public final class MainActivity extends AppCompatActivity {
             updatePacketWakeControls(position, packetThrottle,
                     customPacketRefreezeInput, packetRefreezeTiming);
         });
+        String[] alarmWakeModes = getResources().getStringArray(R.array.alarm_wake_modes);
+        alarmWakeModeInput.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_dropdown_item_1line, alarmWakeModes));
+        int[] selectedAlarmWakeMode = {PolicyRule.ALARM_WAKE_ALLOW};
+        alarmWakeModeInput.setOnItemClickListener((parent, view, position, id) -> {
+            selectedAlarmWakeMode[0] = position;
+            updateAlarmWakeControls(position, alarmThrottle,
+                    customAlarmRefreezeInput, alarmRefreezeTiming);
+        });
 
         if (existing == null) {
             enabledInput.setChecked(true);
@@ -332,6 +377,8 @@ public final class MainActivity extends AppCompatActivity {
             mToFInput.setText("60");
             packetWakeCooldownInput.setText("60");
             packetRefreezeInput.setText("5");
+            alarmWakeCooldownInput.setText("900");
+            alarmRefreezeInput.setText("5");
         } else {
             packageInput.setText(existing.packageName, false);
             enabledInput.setChecked(existing.enabled);
@@ -346,6 +393,35 @@ public final class MainActivity extends AppCompatActivity {
             packetRefreezeInput.setText(String.valueOf(
                     (existing.hasCustomPacketRefreeze()
                             ? existing.packetRefreezeMs : existing.mToFMs) / 1_000L));
+            selectedAlarmWakeMode[0] = clampAlarmWakeMode(existing.alarmWakeMode);
+            alarmWakeCooldownInput.setText(
+                    String.valueOf(existing.alarmWakeCooldownMs / 1_000L));
+            customAlarmRefreezeInput.setChecked(existing.hasCustomAlarmRefreeze());
+            alarmRefreezeInput.setText(String.valueOf(
+                    (existing.hasCustomAlarmRefreeze()
+                            ? existing.alarmRefreezeMs : existing.mToFMs) / 1_000L));
+            blockWakeAsyncBinderInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_ASYNC_BINDER));
+            blockWakeSyncBinderInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_SYNC_BINDER));
+            blockWakeTransBinderInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_TRANS_BINDER));
+            blockWakeSignalInput.setChecked(existing.blocksWake(PolicyRule.WAKE_SIGNAL));
+            blockWakeActivityInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_ACTIVITY_INPUT));
+            blockWakeServiceInput.setChecked(existing.blocksWake(PolicyRule.WAKE_SERVICE));
+            blockWakeBroadcastInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_BROADCAST));
+            blockWakeProviderInput.setChecked(existing.blocksWake(PolicyRule.WAKE_PROVIDER));
+            blockWakeJobSyncInput.setChecked(existing.blocksWake(PolicyRule.WAKE_JOB_SYNC));
+            blockWakeWakelockInput.setChecked(existing.blocksWake(PolicyRule.WAKE_WAKELOCK));
+            blockWakeAudioMediaInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_AUDIO_MEDIA));
+            blockWakeConnectivityInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_CONNECTIVITY));
+            blockWakeSystemSceneInput.setChecked(
+                    existing.blocksWake(PolicyRule.WAKE_SYSTEM_SCENE));
+            blockWakeOtherInput.setChecked(existing.blocksWake(PolicyRule.WAKE_OTHER));
             blockNormalInput.setChecked(existing.blocksFreeze(PolicyRule.FREEZE_NORMAL));
             blockFastInput.setChecked(existing.blocksFreeze(PolicyRule.FREEZE_FAST));
             blockSuperInput.setChecked(existing.blocksFreeze(PolicyRule.FREEZE_SUPER));
@@ -363,6 +439,7 @@ public final class MainActivity extends AppCompatActivity {
             keepBtScanInput.setChecked(existing.bypassesProxy(PolicyRule.PROXY_BT_SCAN));
         }
         packetWakeModeInput.setText(packetWakeModes[selectedPacketWakeMode[0]], false);
+        alarmWakeModeInput.setText(alarmWakeModes[selectedAlarmWakeMode[0]], false);
 
         advanced.setVisibility(fullExemptInput.isChecked() ? View.GONE : View.VISIBLE);
         timing.setVisibility(customTimingInput.isChecked() ? View.VISIBLE : View.GONE);
@@ -375,6 +452,11 @@ public final class MainActivity extends AppCompatActivity {
                         customPacketRefreezeInput, packetRefreezeTiming));
         updatePacketWakeControls(selectedPacketWakeMode[0], packetThrottle,
                 customPacketRefreezeInput, packetRefreezeTiming);
+        customAlarmRefreezeInput.setOnCheckedChangeListener((button, checked) ->
+                updateAlarmWakeControls(selectedAlarmWakeMode[0], alarmThrottle,
+                        customAlarmRefreezeInput, alarmRefreezeTiming));
+        updateAlarmWakeControls(selectedAlarmWakeMode[0], alarmThrottle,
+                customAlarmRefreezeInput, alarmRefreezeTiming);
 
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
                 .setTitle(existing == null ? R.string.add_rule : R.string.edit_rule)
@@ -400,6 +482,11 @@ public final class MainActivity extends AppCompatActivity {
                     long packetRefreeze = packetWakeMode != PolicyRule.PACKET_WAKE_BLOCK
                             && customPacketRefreezeInput.isChecked()
                             ? parseSeconds(packetRefreezeInput) : 0L;
+                    int alarmWakeMode = selectedAlarmWakeMode[0];
+                    long alarmWakeCooldown = parseSeconds(alarmWakeCooldownInput);
+                    long alarmRefreeze = alarmWakeMode != PolicyRule.ALARM_WAKE_BLOCK
+                            && customAlarmRefreezeInput.isChecked()
+                            ? parseSeconds(alarmRefreezeInput) : 0L;
                     int blockedSources = checkedFlag(blockNormalInput, PolicyRule.FREEZE_NORMAL)
                             | checkedFlag(blockFastInput, PolicyRule.FREEZE_FAST)
                             | checkedFlag(blockSuperInput, PolicyRule.FREEZE_SUPER)
@@ -414,14 +501,39 @@ public final class MainActivity extends AppCompatActivity {
                             | checkedFlag(keepWakeLockInput, PolicyRule.PROXY_WAKELOCK)
                             | checkedFlag(keepAudioInput, PolicyRule.PROXY_AUDIO)
                             | checkedFlag(keepBtScanInput, PolicyRule.PROXY_BT_SCAN);
+                    int blockedWakeSources = checkedFlag(blockWakeAsyncBinderInput,
+                            PolicyRule.WAKE_ASYNC_BINDER)
+                            | checkedFlag(blockWakeSyncBinderInput,
+                            PolicyRule.WAKE_SYNC_BINDER)
+                            | checkedFlag(blockWakeTransBinderInput,
+                            PolicyRule.WAKE_TRANS_BINDER)
+                            | checkedFlag(blockWakeSignalInput, PolicyRule.WAKE_SIGNAL)
+                            | checkedFlag(blockWakeActivityInput,
+                            PolicyRule.WAKE_ACTIVITY_INPUT)
+                            | checkedFlag(blockWakeServiceInput, PolicyRule.WAKE_SERVICE)
+                            | checkedFlag(blockWakeBroadcastInput,
+                            PolicyRule.WAKE_BROADCAST)
+                            | checkedFlag(blockWakeProviderInput, PolicyRule.WAKE_PROVIDER)
+                            | checkedFlag(blockWakeJobSyncInput, PolicyRule.WAKE_JOB_SYNC)
+                            | checkedFlag(blockWakeWakelockInput, PolicyRule.WAKE_WAKELOCK)
+                            | checkedFlag(blockWakeAudioMediaInput,
+                            PolicyRule.WAKE_AUDIO_MEDIA)
+                            | checkedFlag(blockWakeConnectivityInput,
+                            PolicyRule.WAKE_CONNECTIVITY)
+                            | checkedFlag(blockWakeSystemSceneInput,
+                            PolicyRule.WAKE_SYSTEM_SCENE)
+                            | checkedFlag(blockWakeOtherInput, PolicyRule.WAKE_OTHER);
                     PolicyCodec.validate(packageName, rToM, mToF,
                             blockedSources, bypassFlags, packetWakeMode,
-                            packetWakeCooldown, packetRefreeze);
+                            packetWakeCooldown, packetRefreeze, alarmWakeMode,
+                            alarmWakeCooldown, alarmRefreeze, blockedWakeSources);
                     PolicyRule rule = new PolicyRule(packageName,
                             enabledInput.isChecked(), fullExemptInput.isChecked(),
                             customTimingInput.isChecked(), rToM, mToF,
                             blockedSources, bypassFlags, keepNetworkInput.isChecked(),
-                            packetWakeMode, packetWakeCooldown, packetRefreeze);
+                            packetWakeMode, packetWakeCooldown, packetRefreeze,
+                            alarmWakeMode, alarmWakeCooldown, alarmRefreeze,
+                            blockedWakeSources);
                     repository.upsert(rule, existing == null ? null : existing.key());
                     dialog.dismiss();
                     render();
@@ -493,6 +605,22 @@ public final class MainActivity extends AppCompatActivity {
     private static int clampPacketWakeMode(int mode) {
         return mode >= PolicyRule.PACKET_WAKE_ALLOW && mode <= PolicyRule.PACKET_WAKE_BLOCK
                 ? mode : PolicyRule.PACKET_WAKE_ALLOW;
+    }
+
+    private static void updateAlarmWakeControls(int mode, View throttle,
+                                                CompoundButton customRefreeze,
+                                                View refreezeTiming) {
+        boolean blocked = mode == PolicyRule.ALARM_WAKE_BLOCK;
+        throttle.setVisibility(mode == PolicyRule.ALARM_WAKE_THROTTLE
+                ? View.VISIBLE : View.GONE);
+        customRefreeze.setVisibility(blocked ? View.GONE : View.VISIBLE);
+        refreezeTiming.setVisibility(!blocked && customRefreeze.isChecked()
+                ? View.VISIBLE : View.GONE);
+    }
+
+    private static int clampAlarmWakeMode(int mode) {
+        return mode >= PolicyRule.ALARM_WAKE_ALLOW && mode <= PolicyRule.ALARM_WAKE_BLOCK
+                ? mode : PolicyRule.ALARM_WAKE_ALLOW;
     }
 
     private static int checkedFlag(CompoundButton input, int flag) {

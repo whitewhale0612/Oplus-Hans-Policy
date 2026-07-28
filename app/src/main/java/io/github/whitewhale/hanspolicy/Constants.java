@@ -10,7 +10,7 @@ public final class Constants {
     public static final String METHOD_REPORT_STATUS = "reportStatus";
     public static final String KEY_POLICY_JSON = "policy_json";
     public static final String ACTION_REFRESH = "io.github.whitewhale.hanspolicy.REFRESH";
-    public static final int SCHEMA_VERSION = 3;
+    public static final int SCHEMA_VERSION = 5;
     public static final long MIN_DELAY_MS = 1_000L;
     public static final long MAX_DELAY_MS = 86_400_000L;
 

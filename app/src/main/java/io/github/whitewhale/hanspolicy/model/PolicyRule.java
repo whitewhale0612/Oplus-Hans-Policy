@@ -7,6 +7,29 @@ public final class PolicyRule {
     public static final int PACKET_WAKE_THROTTLE = 1;
     public static final int PACKET_WAKE_BLOCK = 2;
     public static final long DEFAULT_PACKET_WAKE_COOLDOWN_MS = 60_000L;
+    public static final int ALARM_WAKE_ALLOW = 0;
+    public static final int ALARM_WAKE_THROTTLE = 1;
+    public static final int ALARM_WAKE_BLOCK = 2;
+    public static final long DEFAULT_ALARM_WAKE_COOLDOWN_MS = 900_000L;
+
+    public static final int WAKE_ASYNC_BINDER = 1;
+    public static final int WAKE_SYNC_BINDER = 1 << 1;
+    public static final int WAKE_TRANS_BINDER = 1 << 2;
+    public static final int WAKE_SIGNAL = 1 << 3;
+    public static final int WAKE_ACTIVITY_INPUT = 1 << 4;
+    public static final int WAKE_SERVICE = 1 << 5;
+    public static final int WAKE_BROADCAST = 1 << 6;
+    public static final int WAKE_PROVIDER = 1 << 7;
+    public static final int WAKE_JOB_SYNC = 1 << 8;
+    public static final int WAKE_WAKELOCK = 1 << 9;
+    public static final int WAKE_AUDIO_MEDIA = 1 << 10;
+    public static final int WAKE_CONNECTIVITY = 1 << 11;
+    public static final int WAKE_SYSTEM_SCENE = 1 << 12;
+    public static final int WAKE_OTHER = 1 << 13;
+    public static final int ALL_WAKE_SOURCES = WAKE_ASYNC_BINDER | WAKE_SYNC_BINDER
+            | WAKE_TRANS_BINDER | WAKE_SIGNAL | WAKE_ACTIVITY_INPUT | WAKE_SERVICE
+            | WAKE_BROADCAST | WAKE_PROVIDER | WAKE_JOB_SYNC | WAKE_WAKELOCK
+            | WAKE_AUDIO_MEDIA | WAKE_CONNECTIVITY | WAKE_SYSTEM_SCENE | WAKE_OTHER;
 
     public static final int FREEZE_NORMAL = 1;
     public static final int FREEZE_FAST = 1 << 1;
@@ -41,12 +64,18 @@ public final class PolicyRule {
     public final int packetWakeMode;
     public final long packetWakeCooldownMs;
     public final long packetRefreezeMs;
+    public final int alarmWakeMode;
+    public final long alarmWakeCooldownMs;
+    public final long alarmRefreezeMs;
+    public final int blockedWakeSources;
 
     public PolicyRule(String packageName, boolean enabled, boolean fullExempt,
                       boolean customTiming, long rToMMs, long mToFMs,
                       int blockedFreezeSources, int bypassProxyFlags,
                       boolean keepNetwork, int packetWakeMode,
-                      long packetWakeCooldownMs, long packetRefreezeMs) {
+                      long packetWakeCooldownMs, long packetRefreezeMs,
+                      int alarmWakeMode, long alarmWakeCooldownMs,
+                      long alarmRefreezeMs, int blockedWakeSources) {
         this.packageName = Objects.requireNonNull(packageName);
         this.enabled = enabled;
         this.fullExempt = fullExempt;
@@ -59,6 +88,10 @@ public final class PolicyRule {
         this.packetWakeMode = packetWakeMode;
         this.packetWakeCooldownMs = packetWakeCooldownMs;
         this.packetRefreezeMs = packetRefreezeMs;
+        this.alarmWakeMode = alarmWakeMode;
+        this.alarmWakeCooldownMs = alarmWakeCooldownMs;
+        this.alarmRefreezeMs = alarmRefreezeMs;
+        this.blockedWakeSources = blockedWakeSources;
     }
 
     public String key() {
@@ -86,21 +119,39 @@ public final class PolicyRule {
     }
 
     public boolean blocksPacketWake() {
-        return enabled && packetWakeMode == PACKET_WAKE_BLOCK;
+        return enabled && !fullExempt && packetWakeMode == PACKET_WAKE_BLOCK;
     }
 
     public boolean throttlesPacketWake() {
-        return enabled && packetWakeMode == PACKET_WAKE_THROTTLE;
+        return enabled && !fullExempt && packetWakeMode == PACKET_WAKE_THROTTLE;
     }
 
     public boolean hasCustomPacketRefreeze() {
         return enabled && packetRefreezeMs > 0L;
     }
 
+    public boolean blocksAlarmWake() {
+        return enabled && !fullExempt && alarmWakeMode == ALARM_WAKE_BLOCK;
+    }
+
+    public boolean throttlesAlarmWake() {
+        return enabled && !fullExempt && alarmWakeMode == ALARM_WAKE_THROTTLE;
+    }
+
+    public boolean hasCustomAlarmRefreeze() {
+        return enabled && alarmRefreezeMs > 0L;
+    }
+
+    public boolean blocksWake(int source) {
+        return enabled && !fullExempt && (blockedWakeSources & source) != 0;
+    }
+
     public boolean hasIntervention() {
         return enabled && (fullExempt || customTiming || blockedFreezeSources != 0
                 || bypassProxyFlags != 0 || keepNetwork
-                || packetWakeMode != PACKET_WAKE_ALLOW || packetRefreezeMs > 0L);
+                || packetWakeMode != PACKET_WAKE_ALLOW || packetRefreezeMs > 0L
+                || alarmWakeMode != ALARM_WAKE_ALLOW || alarmRefreezeMs > 0L
+                || blockedWakeSources != 0);
     }
 
     public boolean needsCleanupComparedTo(PolicyRule previous) {

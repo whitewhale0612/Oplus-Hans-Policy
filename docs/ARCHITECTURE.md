@@ -51,7 +51,7 @@ cleanup, the module resolves the package for every Android user and calls the RO
 
 ## Hook map
 
-The validated build installs 22 targets:
+The validated build installs 27 targets:
 
 | Area | Target | Purpose |
 | --- | --- | --- |
@@ -59,11 +59,16 @@ The validated build installs 22 targets:
 | Runtime | `OplusHansManager.init` | Capture context and manager instance. |
 | Runtime | `OplusHansManager.bootCompleted` | Cold-boot initialization fallback. |
 | Timing | `OplusHansDBConfig.getRtoMCheckTime` | Per-package R to M delay. |
-| Timing | `OplusHansDBConfig.getMtoFCheckTime` | Per-package M to F and Packet-specific delay. |
+| Timing | `OplusHansDBConfig.getMtoFCheckTime` | Per-package M to F, Packet, and Alarm-specific delay. |
 | Exemption | `OplusHansManager.isHansCoreApp` | Component-policy exemption. |
 | Exemption | `OplusHansManager.isLcdOnNonRestrictPkg` | Standard state-machine exemption. |
 | Freeze gate | `HansCGroup.hansFreezeLocked` | Block selected sources without faking success. |
-| Packet | `OplusHansManager.unfreezeForKernel` | Allow, throttle, or block `type=4` wake. |
+| Unfreeze gate | `HansCGroup.hansUnfreezeLocked` | Final reason-based gate for framework and scene wakes. |
+| Kernel wake | `OplusHansManager.unfreezeForKernel` | Gate Binder, signal, and Packet callbacks before native thaw. |
+| Alarm | `OplusHansManager.checkAlarmIfRestricted` | Allow, throttle, or block Alarm wake delivery. |
+| Alarm | `OplusHansManager.enqueueProxyBroadcastLocked` | Suppress sibling broadcasts from a blocked Alarm batch. |
+| Alarm | `OplusHansManager.unFreezeForwl(List, String)` | Remove controlled UIDs from Alarm-correlated WakeLock unfreezes. |
+| Alarm | `OplusHansManager.unFreezeForwl(int, String)` | Suppress direct Alarm-correlated WakeLock unfreezes. |
 | Resources | `Action.proxyService` | Preserve Service dispatch. |
 | Resources | `Action.proxyBroadcast` | Preserve broadcast delivery. |
 | Resources | `Action.proxyJob` | Preserve Job dispatch. |
@@ -88,6 +93,45 @@ cooldown are suppressed. State is cleared whenever a new policy snapshot is load
 Blocked-event logging is limited to one message per UID per 60 seconds to avoid turning a
 packet storm into a `system_server` log storm.
 
+## Wake-source gates
+
+`unfreezeForKernel` calls `OplusHansProcessFreeze.unfreezeProcessForKernel` before the
+Hans state transition. The hook therefore classifies kernel types 0-3 and returns before
+the OEM method for a blocked Async Binder, Sync Binder, Transaction Binder, or Signal.
+Type 4 remains controlled by the richer Packet allow/throttle/block policy. Block logs
+include caller PID/UID, AIDL descriptor, and transaction code.
+
+`HansCGroup.hansUnfreezeLocked(OplusHansPackage, reason, cpnInfo)` is the last common
+framework-side gate before firewall relaxation and cgroup thaw. Reasons are grouped into
+Activity/Input, Service, Broadcast, Provider, Job/Sync, WakeLock, audio/media,
+connectivity, system-scene, Binder, signal, and Other categories. Unknown strings map to
+Other, so future OEM reasons remain controllable. The module's own `force/HansPolicy`
+cleanup and full-exemption rules bypass every wake gate.
+
+Activity/Input and system-scene blocking are intentionally opt-in. Enabling either can
+prevent foreground launch or lifecycle recovery.
+
+## Alarm wake state
+
+`checkAlarmIfRestricted(uid, packageName, action)` runs before AlarmManager delivery. A
+block or throttle hit returns `true`, keeping the event on the Hans proxy path instead of
+calling `unfreezeAndTransState(..., "Alarm", action)`. Throttle state is keyed by the
+current UID and cleared on policy reload. Blocked-event logging is rate-limited per UID.
+
+AlarmManager can dispatch several alarms for one UID in a single batch. On this firmware,
+only the first item necessarily passes through `checkAlarmIfRestricted`; sibling items can
+continue through the broadcast path and cause `reason=Broadcast`. A blocked Alarm arms a
+five-second per-UID gate. During that narrow window, matching package broadcasts in
+`enqueueProxyBroadcastLocked` are treated as already handled, preventing the same batch
+from bypassing the Alarm decision. The gate is also cleared on policy reload.
+
+The same batch can update a system WakeLock whose `WorkSource` contains the target UID
+even when its WorkChain belongs to another app and JobScheduler. The OEM implementation
+passes every attributed UID to `unFreezeForwl`, producing `acquireWakeLock` and
+`updateWLWorkSource` unfreezes through its two overloads. While the five-second gate is
+active, the module suppresses direct controlled-UID calls and removes controlled UIDs
+from list calls, leaving unrelated system/app UIDs untouched.
+
 ## Failure behavior
 
 - Hook installation errors are recorded and shown in the manager.
@@ -95,4 +139,4 @@ packet storm into a `system_server` log storm.
 - Provider errors retain the previous snapshot and schedule a retry.
 - Package lookup failure allows the OEM operation.
 - Individual decision errors preserve the original return value.
-- Schema v1 and v2 migrate to v3; legacy user IDs are discarded.
+- Schema v1-v4 migrate to v5; legacy user IDs are discarded.

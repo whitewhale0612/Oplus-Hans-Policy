@@ -41,6 +41,11 @@ such as QQ MSF/iLink, reaches `OplusHansManager.unfreezeForKernel(type=4)` and n
 unfreezes the whole UID with `reason=Packet`. Hans Policy can allow, throttle, or block
 that event.
 
+Binder is independent of Packet and WakeLock. A kernel `type=0` callback can pass the
+OEM asynchronous-Binder whitelist and unfreeze the UID with `reason=W_AsyncBinder`.
+Hans Policy can stop that callback before the native process-freezer thaw, and a final
+unfreeze gate covers framework component, scene, and future unknown reasons.
+
 ## Features
 
 - Package-name rules with runtime UID resolution; no stored UID or Android user ID.
@@ -51,6 +56,11 @@ that event.
   WakeLock, audio, and Bluetooth scan behavior while Hans restrictions are active.
 - Packet wake policy: follow system, minimum-interval throttling, or complete blocking.
 - Optional Packet-specific refreeze delay.
+- Alarm wake policy: follow system, minimum-interval throttling, or complete blocking.
+- Optional Alarm-specific refreeze delay.
+- Independent wake-source gates for Async/Sync/Transaction Binder, signal,
+  Activity/Input, Service, Broadcast, Provider, Job/Sync, WakeLock, audio/media,
+  connectivity, system scenes, and unknown future reasons.
 - Direct-boot policy storage and live reload without restarting `system_server`.
 - Runtime health reporting with boot ID, policy revision, initialization source, hook
   count, and hook errors.
@@ -66,7 +76,7 @@ The master switch is off on a clean install. Rules do not intervene until it is 
 | OS | Android 16 / API 36 |
 | ROM | `PKX110_16.0.9.401(CN01)` |
 | Framework classes | Oplus `oplus-services.jar` from the ROM above |
-| Module version | `0.3.1` (`versionCode 5`) |
+| Current source | `0.5.0` (`versionCode 7`) |
 | Hook target | `android` / `system_server` |
 | Framework | LSPosed API 82 compatible; also tested with Vector Framework 2.0 |
 
@@ -75,24 +85,24 @@ after every OTA before re-enabling the policy master switch.
 
 ## Install
 
-1. Download `HansPolicy-v0.3.1.apk` from the
+1. Download `HansPolicy-v0.4.0.apk` from the
    [latest release](https://github.com/whitewhale0612/Oplus-Hans-Policy/releases/latest).
    Verify its SHA-256 before installation:
 
    ```text
-   d4c10d2fa49f5a2d4a315d317c13f989e9b071b0e32469993ec31342f56ca423
+   6e4ae5c1f47faaf561675cfb7d9eabe4e115b084f019d500124487e88beaea82
    ```
 
 2. Install or update it:
 
    ```bash
-   adb install -r HansPolicy-v0.3.1.apk
+   adb install --no-incremental -r HansPolicy-v0.4.0.apk
    ```
 
 3. Enable **Hans Policy** in LSPosed/Vector.
 4. Scope it only to **System Framework** (`android` / `system`). Do not scope target apps.
 5. Reboot the device.
-6. Open the manager and confirm `Hook connected - 22 targets` with matching system and
+6. Open the manager and confirm `Hook connected - 27 targets` with matching system and
    local revisions.
 7. Add one test rule, then enable the in-app master switch.
 
@@ -111,6 +121,24 @@ Blocking Packet wake can delay messages, VoIP signaling, socket progress, and ot
 background network work. It does not drop packets at the firewall; it prevents that Hans
 callback from unfreezing the UID. Test communication apps carefully.
 
+Alarm is a separate wake path. QQ MSF/iLink registers `ELAPSED_WAKEUP` alarms; on the
+validated sample, a dynamically numbered `ALARM_ACTION(...)` fired about every five
+minutes and entered
+`OplusHansManager.checkAlarmIfRestricted`, which normally unfreezes the UID with
+`reason=Alarm`.
+
+## Alarm wake policy
+
+| Mode | Behavior |
+| --- | --- |
+| Follow system | Hans handles an expired Alarm normally. |
+| Throttle | The first Alarm wake is allowed; later events inside the cooldown remain proxied. |
+| Block | Matching Alarm delivery is suppressed before `reason=Alarm` can unfreeze the UID. |
+
+This controls Alarm delivery for a frozen app; it does not delete alarms registered by
+the app. The separate "preserve alarms" resource option has the opposite purpose and
+should not be enabled when the goal is to prevent periodic Alarm wakeups.
+
 ## Verify
 
 ```bash
@@ -120,9 +148,12 @@ adb logcat -v time | grep -E 'HansPolicy|OplusHansManager'
 Useful events include:
 
 ```text
-HansPolicy: installed 22 hooks
+HansPolicy: installed 27 hooks
+HansPolicy: Wake source blocked uid=<uid> pkg=<package> source=AsyncBinder reason=kernel:AsyncBinder detail=<aidl>/<code> caller=<pid>/<uid>
 HansPolicy: Packet wake blocked uid=<uid> pkg=<package>
 HansPolicy: Packet wake throttled uid=<uid> pkg=<package>
+HansPolicy: Alarm wake blocked uid=<uid> pkg=<package> action=<action>
+HansPolicy: Alarm batch broadcast suppressed uid=<uid> pkg=<package>
 OplusHansManager: unfreeze uid: <uid> ... reason: Packet
 OplusHansManager: freeze uid: <uid> ...
 ```
@@ -134,7 +165,7 @@ adb shell su -c 'cat /sys/fs/cgroup/apps/uid_<uid>/cgroup.events'
 ```
 
 Expected kernel state includes `frozen 1`. See [verification notes](docs/VERIFICATION.md)
-for the captured v0.3.1 results.
+for the captured v0.5.0 results.
 
 ## Build
 
@@ -158,7 +189,7 @@ Windows:
 scripts\build.bat
 ```
 
-The default build runs lint and creates `dist/HansPolicy-v0.3.1-debug.apk`. The Xposed API
+The default build runs lint and creates `dist/HansPolicy-v0.5.0-debug.apk`. The Xposed API
 82 JAR is a `compileOnly` dependency and is not packaged into the APK.
 
 Manual Gradle build:
@@ -197,6 +228,8 @@ leaves no persistent OEM-policy mutation to undo.
 - Private Oplus method signatures can change between ROM builds.
 - Full exemption and resource preservation can materially increase background power use.
 - Packet blocking can delay user-visible communications.
+- Blocking Activity/Input or system-scene wakes can prevent normal app launch or system
+  lifecycle recovery. These high-risk controls are off by default.
 - Android shared UIDs are controlled as one UID even when several packages share it.
 - Already queued state-machine messages are not rescheduled; timing changes apply from
   the next state transition.

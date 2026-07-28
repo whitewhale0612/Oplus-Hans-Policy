@@ -39,6 +39,15 @@ Hans/OFreezer。只修改 Athena 静态名单，不能精确覆盖所有运行�
 monitor 会进入 `OplusHansManager.unfreezeForKernel(type=4)`，并以 `reason=Packet`
 解冻整个 UID。本模块可以允许、限频或阻止这个事件。
 
+Alarm 是独立的周期解冻路径。QQ 的 MSF/iLink 会注册 `ELAPSED_WAKEUP` 闹钟；在已验证
+样本中动态编号的 `ALARM_ACTION(...)` 约每 5 分钟触发一次，并进入
+`OplusHansManager.checkAlarmIfRestricted`，随后以 `reason=Alarm` 解冻 UID。本模块可独立
+允许、限频或阻止 Alarm 唤醒，不影响前台使用。
+
+Binder 与 Packet、WakeLock 都不是同一条链。内核 `type=0` 回调命中厂商异步 Binder
+白名单后，会以 `reason=W_AsyncBinder` 解冻整个 UID。本模块可在 native process-freezer
+实际 thaw 之前阻止该回调，并用最终解冻闸门覆盖组件、系统场景和未来未知 reason。
+
 ## 功能
 
 - 规则只以包名为键，运行时动态解析 UID，不保存 UID 或 Android 用户 ID。
@@ -49,6 +58,10 @@ monitor 会进入 `OplusHansManager.unfreezeForKernel(type=4)`，并以 `reason=
   传感器、GPS、WakeLock、音频和蓝牙扫描行为。
 - 网络包唤醒可选择跟随系统、限制最短唤醒间隔或完全阻止。
 - 可单独设置 Packet 解冻后的再次冻结延时。
+- 闹钟唤醒可独立选择跟随系统、限制最短唤醒间隔或完全阻止。
+- 可单独设置 Alarm 解冻后的再次冻结延时。
+- 可分别阻止异步/同步/事务 Binder、Signal、Activity/Input、Service、Broadcast、
+  Provider、Job/Sync、WakeLock、音频媒体、连接状态、系统场景和未来未知解冻原因。
 - Direct Boot 策略存储，保存后动态重载，不需要重启 `system_server`。
 - 管理界面上报 boot ID、策略 revision、初始化来源、Hook 数量和错误。
 - 配置解析、包名解析或单个 Hook 失败时 fail-open，保留厂商原行为。
@@ -63,33 +76,33 @@ monitor 会进入 `OplusHansManager.unfreezeForKernel(type=4)`，并以 `reason=
 | 系统 | Android 16 / API 36 |
 | 固件 | `PKX110_16.0.9.401(CN01)` |
 | 逆向样本 | 上述固件的 Oplus `oplus-services.jar` |
-| 模块版本 | `0.3.1`（`versionCode 5`） |
+| 当前源码版本 | `0.5.0`（`versionCode 7`） |
 | Hook 进程 | `android` / `system_server` |
 | 框架 | LSPosed API 82 兼容；同时在 Vector Framework 2.0 验证 |
 
 当前没有宣称适配其他 ColorOS/OxygenOS 版本。每次 OTA 后都应先核对核心方法签名，
-确认 22 个 Hook 全部安装成功，再重新打开策略总开关。
+确认 27 个 Hook 全部安装成功，再重新打开策略总开关。
 
 ## 安装
 
 1. 从 [最新 Release](https://github.com/whitewhale0612/Oplus-Hans-Policy/releases/latest)
-   下载 `HansPolicy-v0.3.1.apk`。
+   下载 `HansPolicy-v0.4.0.apk`。
    安装前核对 SHA-256：
 
    ```text
-   d4c10d2fa49f5a2d4a315d317c13f989e9b071b0e32469993ec31342f56ca423
+   6e4ae5c1f47faaf561675cfb7d9eabe4e115b084f019d500124487e88beaea82
    ```
 
 2. 安装或覆盖更新：
 
    ```bash
-   adb install -r HansPolicy-v0.3.1.apk
+   adb install --no-incremental -r HansPolicy-v0.4.0.apk
    ```
 
 3. 在 LSPosed/Vector 中启用 **Hans Policy**。
 4. 作用域只选择 **系统框架**（`android` / `system`），不需要选择目标应用。
 5. 重启设备。
-6. 打开管理应用，确认显示“Hook 已连接 · 22 个目标”，并且 system/local revision
+6. 打开管理应用，确认显示“Hook 已连接 · 27 个目标”，并且 system/local revision
    一致。
 7. 先添加一条测试规则，最后再打开管理应用内的策略总开关。
 
@@ -111,6 +124,18 @@ monitor 会进入 `OplusHansManager.unfreezeForKernel(type=4)`，并以 `reason=
 音频焦点、前台服务或其他系统场景，Hans 状态机仍可能拒绝当次转 F；模块不会伪造冻结
 成功状态。
 
+## 闹钟唤醒
+
+| 模式 | 行为 |
+| --- | --- |
+| 跟随系统 | Alarm 到期后交给 Hans 原逻辑处理。 |
+| 限制唤醒频率 | 首个 Alarm 允许解冻，冷却时间内的后续事件继续留在代理队列。 |
+| 完全阻止唤醒 | 匹配包的 Alarm 不投递，不触发 `reason=Alarm` 解冻。 |
+
+该策略控制的是被冻结应用的 Alarm 投递，不是删除应用注册的闹钟。“冻结时保留资源”
+中的“闹钟与定时器”语义相反，它用于绕过 Hans 的 Alarm 代理；需要阻止周期唤醒时不要
+同时启用该资源保留项。
+
 ## 验证
 
 查看模块与 Hans 日志：
@@ -122,9 +147,12 @@ adb logcat -v time | grep -E 'HansPolicy|OplusHansManager'
 典型日志：
 
 ```text
-HansPolicy: installed 22 hooks
+HansPolicy: installed 27 hooks
+HansPolicy: Wake source blocked uid=<uid> pkg=<package> source=AsyncBinder reason=kernel:AsyncBinder detail=<aidl>/<code> caller=<pid>/<uid>
 HansPolicy: Packet wake blocked uid=<uid> pkg=<package>
 HansPolicy: Packet wake throttled uid=<uid> pkg=<package>
+HansPolicy: Alarm wake blocked uid=<uid> pkg=<package> action=<action>
+HansPolicy: Alarm batch broadcast suppressed uid=<uid> pkg=<package>
 OplusHansManager: unfreeze uid: <uid> ... reason: Packet
 OplusHansManager: freeze uid: <uid> ...
 ```
@@ -135,7 +163,7 @@ OplusHansManager: freeze uid: <uid> ...
 adb shell su -c 'cat /sys/fs/cgroup/apps/uid_<uid>/cgroup.events'
 ```
 
-预期包含 `frozen 1`。v0.3.1 的设备测试证据见
+预期包含 `frozen 1`。v0.5.0 的设备测试证据见
 [真机验证记录](docs/VERIFICATION_CN.md)。
 
 ## 构建
@@ -160,7 +188,7 @@ Windows：
 scripts\build.bat
 ```
 
-默认会执行 lint，并生成 `dist/HansPolicy-v0.3.1-debug.apk`。Xposed API 82 JAR 使用
+默认会执行 lint，并生成 `dist/HansPolicy-v0.5.0-debug.apk`。Xposed API 82 JAR 使用
 `compileOnly`，不会打入 APK。
 
 也可以直接执行：
@@ -197,7 +225,9 @@ adb reboot
 - Oplus 私有方法签名可能随固件变化。
 - 完全豁免和资源保留会明显改变后台功耗。
 - 阻止 Packet 唤醒可能延迟用户可见的通信事件。
+- Activity/Input 与系统场景属于高风险控制，启用后可能阻止正常前台打开或系统生命周期
+  恢复，因此默认不勾选。
 - Android shared UID 下的多个包仍会作为同一个 UID 被控制。
 - 已经进入 Handler 队列的旧状态消息不会被重排；新时序从下一次状态转换生效。
 
-完整设计与 22 个 Hook 的映射见[架构文档](docs/ARCHITECTURE_CN.md)。
+完整设计与 27 个 Hook 的映射见[架构文档](docs/ARCHITECTURE_CN.md)。

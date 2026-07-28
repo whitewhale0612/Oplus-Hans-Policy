@@ -103,6 +103,20 @@ final class RuleAdapter extends BaseAdapter {
             parts.add(context.getString(R.string.rule_packet_refreeze,
                     seconds(rule.packetRefreezeMs)));
         }
+        if (rule.blocksAlarmWake()) {
+            parts.add(context.getString(R.string.rule_block_alarm));
+        } else if (rule.throttlesAlarmWake()) {
+            parts.add(context.getString(R.string.rule_throttle_alarm,
+                    seconds(rule.alarmWakeCooldownMs)));
+        }
+        if (!rule.blocksAlarmWake() && rule.hasCustomAlarmRefreeze()) {
+            parts.add(context.getString(R.string.rule_alarm_refreeze,
+                    seconds(rule.alarmRefreezeMs)));
+        }
+        if (rule.blockedWakeSources != 0) {
+            parts.add(context.getString(R.string.rule_block_wake_sources,
+                    Integer.bitCount(rule.blockedWakeSources)));
+        }
         int resources = Integer.bitCount(rule.bypassProxyFlags)
                 + (rule.keepNetwork ? 1 : 0);
         if (resources != 0) {

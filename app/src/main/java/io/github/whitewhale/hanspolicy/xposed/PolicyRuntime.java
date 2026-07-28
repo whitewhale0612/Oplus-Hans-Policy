@@ -34,6 +34,7 @@ final class PolicyRuntime {
     private static final long INIT_RETRY_DELAY_MS = 1_000L;
     private static final long RETRY_DELAY_MS = 15_000L;
     private static final long PACKET_BLOCK_LOG_INTERVAL_MS = 60_000L;
+    private static final long ALARM_BATCH_GATE_MS = 5_000L;
     private static final String FAST_FREEZER = "enterFF";
     private static final String SUPER_FREEZE = "Super_F";
     private static final String PRELOAD_FREEZE = "Preload_F";
@@ -43,6 +44,16 @@ final class PolicyRuntime {
     private static final ConcurrentMap<Integer, Long> LAST_PACKET_WAKE_MS =
             new ConcurrentHashMap<>();
     private static final ConcurrentMap<Integer, Long> LAST_PACKET_BLOCK_LOG_MS =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Integer, Long> LAST_ALARM_WAKE_MS =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Integer, Long> LAST_ALARM_BLOCK_LOG_MS =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Integer, Long> ALARM_BROADCAST_BLOCK_UNTIL_MS =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Integer, Long> LAST_ALARM_BATCH_BLOCK_LOG_MS =
+            new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, Long> LAST_WAKE_SOURCE_BLOCK_LOG_MS =
             new ConcurrentHashMap<>();
     private static volatile PolicySnapshot snapshot = PolicySnapshot.disabled();
     private static volatile String lastError = "";
@@ -223,6 +234,9 @@ final class PolicyRuntime {
             if (mToF && param.args.length > 4 && "Packet".equals(param.args[4])
                     && rule.hasCustomPacketRefreeze()) {
                 param.setResult(rule.packetRefreezeMs);
+            } else if (mToF && param.args.length > 4 && "Alarm".equals(param.args[4])
+                    && rule.hasCustomAlarmRefreeze()) {
+                param.setResult(rule.alarmRefreezeMs);
             } else if (rule.hasCustomTiming()) {
                 param.setResult(mToF ? rule.mToFMs : rule.rToMMs);
             }
@@ -253,6 +267,279 @@ final class PolicyRuntime {
         }
         logBlockedPacketWake(uid, rule.packageName, "throttled", now);
         return true;
+    }
+
+    static boolean shouldBlockKernelWake(int type, int callerPid, int callerUid,
+                                         int targetUid, String rpcName, int code) {
+        if (type == 4) {
+            return shouldBlockPacketWake(targetUid);
+        }
+        int source = kernelWakeSource(type);
+        if (source == 0) {
+            return false;
+        }
+        PolicyRule rule = ruleForUid(targetUid);
+        if (rule == null || !rule.blocksWake(source)) {
+            return false;
+        }
+        logBlockedWakeSource(targetUid, rule.packageName, source,
+                "kernel:" + kernelWakeName(type), rpcName + "/" + code
+                        + " caller=" + callerPid + "/" + callerUid);
+        return true;
+    }
+
+    static boolean shouldBlockHansUnfreeze(Object hansPackage, String reason,
+                                           String cpnInfo) {
+        if ("force".equals(reason) && "HansPolicy".equals(cpnInfo)) {
+            return false;
+        }
+        try {
+            int uid = (Integer) XposedHelpers.callMethod(hansPackage, "getUid");
+            String packageName = (String) XposedHelpers.callMethod(
+                    hansPackage, "getPkgName");
+            PolicyRule rule = ruleFor(uid, packageName);
+            if (rule == null || rule.isExempt()) {
+                return false;
+            }
+            if ("Packet".equals(reason)) {
+                return rule.blocksPacketWake();
+            }
+            if ("Alarm".equals(reason) || "Proxy2AlignAlarm".equals(reason)) {
+                return rule.blocksAlarmWake();
+            }
+            int source = hansWakeSource(reason);
+            if (!rule.blocksWake(source)) {
+                return false;
+            }
+            logBlockedWakeSource(uid, packageName, source, reason, cpnInfo);
+            return true;
+        } catch (Throwable throwable) {
+            recordError("unfreeze source", throwable);
+            return false;
+        }
+    }
+
+    private static int kernelWakeSource(int type) {
+        switch (type) {
+            case 0:
+                return PolicyRule.WAKE_ASYNC_BINDER;
+            case 1:
+                return PolicyRule.WAKE_SYNC_BINDER;
+            case 2:
+                return PolicyRule.WAKE_TRANS_BINDER;
+            case 3:
+                return PolicyRule.WAKE_SIGNAL;
+            default:
+                return 0;
+        }
+    }
+
+    private static String kernelWakeName(int type) {
+        switch (type) {
+            case 0:
+                return "AsyncBinder";
+            case 1:
+                return "SyncBinder";
+            case 2:
+                return "TransBinder";
+            case 3:
+                return "Signal";
+            default:
+                return "type=" + type;
+        }
+    }
+
+    private static int hansWakeSource(String reason) {
+        if (reason == null || reason.isEmpty()) {
+            return PolicyRule.WAKE_OTHER;
+        }
+        switch (reason) {
+            case "AsyncBinder":
+            case "AsyncBinderMax":
+            case "FullAsyncBinder":
+            case "W_AsyncBinder":
+                return PolicyRule.WAKE_ASYNC_BINDER;
+            case "SyncBinder":
+                return PolicyRule.WAKE_SYNC_BINDER;
+            case "TransBinder":
+                return PolicyRule.WAKE_TRANS_BINDER;
+            case "Signal":
+                return PolicyRule.WAKE_SIGNAL;
+            case "Activity":
+            case "TopActivity":
+            case "RelaunchActivity":
+            case "inputDispatcher":
+            case "inputCancel":
+            case "AppCardVisible":
+                return PolicyRule.WAKE_ACTIVITY_INPUT;
+            case "StartService":
+            case "BindService":
+            case "restartService":
+            case "BumpService":
+            case "serviceTimeout":
+            case "ExecutingComponent":
+            case "fg-dependency":
+                return PolicyRule.WAKE_SERVICE;
+            case "Broadcast":
+            case "bcMax":
+                return PolicyRule.WAKE_BROADCAST;
+            case "Provider":
+                return PolicyRule.WAKE_PROVIDER;
+            case "Job":
+            case "Sync":
+                return PolicyRule.WAKE_JOB_SYNC;
+            case "Wakelock":
+                return PolicyRule.WAKE_WAKELOCK;
+            case "AudioNotSilence":
+            case "MediaUnmute":
+            case "BtControl":
+                return PolicyRule.WAKE_AUDIO_MEDIA;
+            case "traffic":
+            case "navigationApp":
+            case "TcpRetransmission":
+                return PolicyRule.WAKE_CONNECTIVITY;
+            case "appSceneChanged":
+            case "appZygote":
+            case "backUp":
+            case "exitDeepSleep":
+            case "exitFF":
+            case "exitFreezeDeepDoze":
+            case "exitMinSystem":
+            case "exitMultiWindowScene":
+            case "exitStrictMode":
+            case "exitThermal":
+            case "force":
+            case "forceUnfreeze":
+            case "HansDisabled":
+            case "LcdOn":
+            case "Preload_UF":
+            case "R_F_TargetMap":
+            case "shutDown":
+            case "skipImportance":
+            case "trimMemPkgsExceed":
+            case "UidGone":
+            case "Watchdog":
+            case "HansWatchDogBlocked":
+            case "FreezerExempt":
+            case "resetAbnormalEnergySysApp":
+                return PolicyRule.WAKE_SYSTEM_SCENE;
+            default:
+                return PolicyRule.WAKE_OTHER;
+        }
+    }
+
+    private static String wakeSourceName(int source) {
+        switch (source) {
+            case PolicyRule.WAKE_ASYNC_BINDER:
+                return "AsyncBinder";
+            case PolicyRule.WAKE_SYNC_BINDER:
+                return "SyncBinder";
+            case PolicyRule.WAKE_TRANS_BINDER:
+                return "TransBinder";
+            case PolicyRule.WAKE_SIGNAL:
+                return "Signal";
+            case PolicyRule.WAKE_ACTIVITY_INPUT:
+                return "ActivityInput";
+            case PolicyRule.WAKE_SERVICE:
+                return "Service";
+            case PolicyRule.WAKE_BROADCAST:
+                return "Broadcast";
+            case PolicyRule.WAKE_PROVIDER:
+                return "Provider";
+            case PolicyRule.WAKE_JOB_SYNC:
+                return "JobSync";
+            case PolicyRule.WAKE_WAKELOCK:
+                return "WakeLock";
+            case PolicyRule.WAKE_AUDIO_MEDIA:
+                return "AudioMedia";
+            case PolicyRule.WAKE_CONNECTIVITY:
+                return "Connectivity";
+            case PolicyRule.WAKE_SYSTEM_SCENE:
+                return "SystemScene";
+            default:
+                return "Other";
+        }
+    }
+
+    private static void logBlockedWakeSource(int uid, String packageName, int source,
+                                             String reason, String detail) {
+        long now = SystemClock.elapsedRealtime();
+        String key = uid + ":" + source;
+        Long lastLog = LAST_WAKE_SOURCE_BLOCK_LOG_MS.get(key);
+        if (lastLog != null && now - lastLog < PACKET_BLOCK_LOG_INTERVAL_MS) {
+            return;
+        }
+        LAST_WAKE_SOURCE_BLOCK_LOG_MS.put(key, now);
+        XposedBridge.log("HansPolicy: Wake source blocked uid=" + uid
+                + " pkg=" + packageName + " source=" + wakeSourceName(source)
+                + " reason=" + reason + " detail=" + detail);
+    }
+
+    static boolean shouldBlockAlarmWake(int uid, String packageName, String action) {
+        PolicyRule rule = ruleFor(uid, packageName);
+        if (rule == null || rule.alarmWakeMode == PolicyRule.ALARM_WAKE_ALLOW) {
+            return false;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (rule.blocksAlarmWake()) {
+            armAlarmBatchGate(uid, now);
+            logBlockedAlarmWake(uid, packageName, action, "blocked", now);
+            return true;
+        }
+        if (!rule.throttlesAlarmWake()) {
+            return false;
+        }
+        synchronized (LAST_ALARM_WAKE_MS) {
+            Long lastWake = LAST_ALARM_WAKE_MS.get(uid);
+            if (lastWake == null || now - lastWake >= rule.alarmWakeCooldownMs) {
+                LAST_ALARM_WAKE_MS.put(uid, now);
+                return false;
+            }
+        }
+        armAlarmBatchGate(uid, now);
+        logBlockedAlarmWake(uid, packageName, action, "throttled", now);
+        return true;
+    }
+
+    static boolean shouldSuppressAlarmBatchBroadcast(int uid, String packageName) {
+        Long blockUntil = ALARM_BROADCAST_BLOCK_UNTIL_MS.get(uid);
+        if (blockUntil == null) {
+            return false;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (now >= blockUntil) {
+            ALARM_BROADCAST_BLOCK_UNTIL_MS.remove(uid, blockUntil);
+            return false;
+        }
+        PolicyRule rule = ruleFor(uid, packageName);
+        if (rule == null || rule.alarmWakeMode == PolicyRule.ALARM_WAKE_ALLOW) {
+            return false;
+        }
+        logAlarmBatchBroadcastSuppressed(uid, packageName, now);
+        return true;
+    }
+
+    static boolean shouldSuppressAlarmBatchWakeLock(int uid, String reason) {
+        Long blockUntil = ALARM_BROADCAST_BLOCK_UNTIL_MS.get(uid);
+        if (blockUntil == null) {
+            return false;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (now >= blockUntil) {
+            ALARM_BROADCAST_BLOCK_UNTIL_MS.remove(uid, blockUntil);
+            return false;
+        }
+        PolicyRule rule = ruleForUid(uid);
+        if (rule == null || rule.alarmWakeMode == PolicyRule.ALARM_WAKE_ALLOW) {
+            return false;
+        }
+        XposedBridge.log("HansPolicy: Alarm batch WakeLock unfreeze suppressed uid=" + uid
+                + " pkg=" + rule.packageName + " reason=" + reason);
+        return true;
+    }
+
+    private static void armAlarmBatchGate(int uid, long now) {
+        ALARM_BROADCAST_BLOCK_UNTIL_MS.put(uid, now + ALARM_BATCH_GATE_MS);
     }
 
     private static PolicyRule ruleForHansPackage(Object hansPackage) {
@@ -332,6 +619,29 @@ final class PolicyRuntime {
                 + " pkg=" + packageName);
     }
 
+    private static void logBlockedAlarmWake(int uid, String packageName,
+                                            String alarmAction, String policyAction,
+                                            long now) {
+        Long lastLog = LAST_ALARM_BLOCK_LOG_MS.get(uid);
+        if (lastLog != null && now - lastLog < PACKET_BLOCK_LOG_INTERVAL_MS) {
+            return;
+        }
+        LAST_ALARM_BLOCK_LOG_MS.put(uid, now);
+        XposedBridge.log("HansPolicy: Alarm wake " + policyAction + " uid=" + uid
+                + " pkg=" + packageName + " action=" + alarmAction);
+    }
+
+    private static void logAlarmBatchBroadcastSuppressed(int uid, String packageName,
+                                                         long now) {
+        Long lastLog = LAST_ALARM_BATCH_BLOCK_LOG_MS.get(uid);
+        if (lastLog != null && now - lastLog < PACKET_BLOCK_LOG_INTERVAL_MS) {
+            return;
+        }
+        LAST_ALARM_BATCH_BLOCK_LOG_MS.put(uid, now);
+        XposedBridge.log("HansPolicy: Alarm batch broadcast suppressed uid=" + uid
+                + " pkg=" + packageName);
+    }
+
     private static void scheduleReload(long delayMs) {
         if (handler == null) {
             return;
@@ -352,6 +662,11 @@ final class PolicyRuntime {
                 snapshot = next;
                 LAST_PACKET_WAKE_MS.clear();
                 LAST_PACKET_BLOCK_LOG_MS.clear();
+                LAST_ALARM_WAKE_MS.clear();
+                LAST_ALARM_BLOCK_LOG_MS.clear();
+                ALARM_BROADCAST_BLOCK_UNTIL_MS.clear();
+                LAST_ALARM_BATCH_BLOCK_LOG_MS.clear();
+                LAST_WAKE_SOURCE_BLOCK_LOG_MS.clear();
                 lastError = hookSummary == null ? "" : hookSummary.errorsText();
                 cleanupNewInterventions(previous, next);
                 reportStatus();

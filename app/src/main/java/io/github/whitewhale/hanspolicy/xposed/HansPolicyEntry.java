@@ -13,6 +13,7 @@ import io.github.whitewhale.hanspolicy.Constants;
 import io.github.whitewhale.hanspolicy.model.PolicyRule;
 
 import java.util.Set;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class HansPolicyEntry implements IXposedHookLoadPackage {
@@ -35,7 +36,9 @@ public final class HansPolicyEntry implements IXposedHookLoadPackage {
         installTimingHooks(loadPackageParam.classLoader, summary);
         installExemptionHooks(loadPackageParam.classLoader, summary);
         installFreezeGate(loadPackageParam.classLoader, summary);
+        installUnfreezeGate(loadPackageParam.classLoader, summary);
         installPacketWakeHook(loadPackageParam.classLoader, summary);
+        installAlarmWakeHook(loadPackageParam.classLoader, summary);
         installResourceHooks(loadPackageParam.classLoader, summary);
         XposedBridge.log("HansPolicy: installed " + summary.count() + " hooks; "
                 + summary.targetsText());
@@ -195,6 +198,28 @@ public final class HansPolicyEntry implements IXposedHookLoadPackage {
         }
     }
 
+    private static void installUnfreezeGate(ClassLoader loader, HookSummary summary) {
+        try {
+            Class<?> packageClass = XposedHelpers.findClass(
+                    "com.android.server.hans.OplusHansPackage", loader);
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.hans.freeze.HansCGroup", loader,
+                    "hansUnfreezeLocked", packageClass, String.class, String.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (PolicyRuntime.shouldBlockHansUnfreeze(param.args[0],
+                                    (String) param.args[1], (String) param.args[2])) {
+                                param.setResult(false);
+                            }
+                        }
+                    });
+            summary.addTarget("HansCGroup.hansUnfreezeLocked(source gate)");
+        } catch (Throwable throwable) {
+            summary.addError("unfreeze gate hook: " + brief(throwable));
+        }
+    }
+
     private static void installPacketWakeHook(ClassLoader loader, HookSummary summary) {
         try {
             XposedHelpers.findAndHookMethod(
@@ -204,15 +229,106 @@ public final class HansPolicyEntry implements IXposedHookLoadPackage {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
                             int type = (Integer) param.args[0];
+                            int callerPid = (Integer) param.args[1];
+                            int callerUid = (Integer) param.args[2];
                             int targetUid = (Integer) param.args[4];
-                            if (type == 4 && PolicyRuntime.shouldBlockPacketWake(targetUid)) {
+                            String rpcName = (String) param.args[5];
+                            int code = (Integer) param.args[6];
+                            if (PolicyRuntime.shouldBlockKernelWake(type, callerPid,
+                                    callerUid, targetUid, rpcName, code)) {
                                 param.setResult(null);
                             }
                         }
                     });
-            summary.addTarget("OplusHansManager.unfreezeForKernel(packet)");
+            summary.addTarget("OplusHansManager.unfreezeForKernel(source gate)");
         } catch (Throwable throwable) {
-            summary.addError("Packet wake hook: " + brief(throwable));
+            summary.addError("kernel wake hook: " + brief(throwable));
+        }
+    }
+
+    private static void installAlarmWakeHook(ClassLoader loader, HookSummary summary) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.am.OplusHansManager", loader,
+                    "checkAlarmIfRestricted", int.class, String.class, String.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            int uid = (Integer) param.args[0];
+                            String packageName = (String) param.args[1];
+                            String action = (String) param.args[2];
+                            if (PolicyRuntime.shouldBlockAlarmWake(
+                                    uid, packageName, action)) {
+                                param.setResult(true);
+                            }
+                        }
+                    });
+            summary.addTarget("OplusHansManager.checkAlarmIfRestricted");
+        } catch (Throwable throwable) {
+            summary.addError("Alarm wake hook: " + brief(throwable));
+        }
+        try {
+            Class<?> broadcastRecordClass = XposedHelpers.findClass(
+                    "com.android.server.am.BroadcastRecord", loader);
+            Class<?> proxyBroadcastClass = XposedHelpers.findClass(
+                    "com.android.server.am.OplusProxyBroadcast", loader);
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.am.OplusHansManager", loader,
+                    "enqueueProxyBroadcastLocked", boolean.class,
+                    broadcastRecordClass, Object.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            Object target = param.args[2];
+                            int uid = (Integer) XposedHelpers.callStaticMethod(
+                                    proxyBroadcastClass, "getTargetUid", target);
+                            String packageName = (String) XposedHelpers.callStaticMethod(
+                                    proxyBroadcastClass, "getTargetPkg", target);
+                            if (PolicyRuntime.shouldSuppressAlarmBatchBroadcast(
+                                    uid, packageName)) {
+                                param.setResult(true);
+                            }
+                        }
+                    });
+            summary.addTarget("OplusHansManager.enqueueProxyBroadcastLocked(alarm batch)");
+        } catch (Throwable throwable) {
+            summary.addError("Alarm batch broadcast hook: " + brief(throwable));
+        }
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.am.OplusHansManager", loader,
+                    "unFreezeForwl", List.class, String.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            @SuppressWarnings("unchecked")
+                            List<Integer> uids = (List<Integer>) param.args[0];
+                            String reason = (String) param.args[1];
+                            if (uids != null) {
+                                uids.removeIf(uid -> uid != null
+                                        && PolicyRuntime.shouldSuppressAlarmBatchWakeLock(
+                                        uid, reason));
+                            }
+                        }
+                    });
+            summary.addTarget("OplusHansManager.unFreezeForwl(alarm batch WakeLock)");
+        } catch (Throwable throwable) {
+            summary.addError("Alarm batch WakeLock hook: " + brief(throwable));
+        }
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.am.OplusHansManager", loader,
+                    "unFreezeForwl", int.class, String.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            int uid = (Integer) param.args[0];
+                            String reason = (String) param.args[1];
+                            if (PolicyRuntime.shouldSuppressAlarmBatchWakeLock(uid, reason)) {
+                                param.setResult(null);
+                            }
+                        }
+                    });
+            summary.addTarget("OplusHansManager.unFreezeForwl(alarm WakeLock)");
+        } catch (Throwable throwable) {
+            summary.addError("Alarm WakeLock hook: " + brief(throwable));
         }
     }
 
