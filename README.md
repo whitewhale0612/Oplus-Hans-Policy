@@ -12,9 +12,9 @@ writing kernel freezer files or replacing the OEM state machine.
 > Keep an LSPosed/Vector recovery path available and test with the master switch off.
 
 <p align="center">
-  <img src="docs/images/main-screen.png" width="30%" alt="Runtime status and app rules">
-  <img src="docs/images/rule-dialog.png" width="30%" alt="Timing and packet wake controls">
-  <img src="docs/images/packet-control.png" width="30%" alt="Freeze source and resource controls">
+  <img src="docs/images/main-screen.png" width="30%" alt="Module status and system information">
+  <img src="docs/images/rule-dialog.png" width="30%" alt="Per-app freeze policy configuration">
+  <img src="docs/images/packet-control.png" width="30%" alt="Per-source wake blocking">
 </p>
 
 ## Why this exists
@@ -109,13 +109,96 @@ after every OTA before re-enabling the policy master switch.
 Package rules are resolved to current UIDs at runtime. Reinstalling or recreating an app
 does not require editing the rule when its UID changes.
 
+## Policy guide and recommendations
+
+The three similarly named sections act at different stages. **Block freeze sources**
+keeps an app from entering Frozen. **Preserve resources while frozen** relaxes Hans
+proxying and resource cleanup. **Block wake sources** rejects selected events after the
+app is already Frozen. Start with every checkbox clear and add one control at a time
+after identifying its reason in logs.
+
+### Basics and timing
+
+| Setting | Effect | Possible impact | Recommendation |
+| --- | --- | --- | --- |
+| Policy master switch | Enables or disables all package rules together. | Every enabled rule takes effect immediately. | Keep off after first install or OTA; enable only after all 27 hooks report healthy. |
+| Enable this rule | Toggles one package rule without deleting it. | Disabled apps fully follow OEM policy. | Use for A/B comparisons and troubleshooting. |
+| Full Hans exemption | Prevents Hans freezing and restrictions for the app. | Background CPU, network, and power use can rise substantially; wake gates become irrelevant. | Reserve for navigation or continuous playback apps that genuinely cannot be frozen. |
+| Custom R / M / F timing | Replaces the default Hans timing with the two delays below. | A poor combination can freeze too early, delay background behavior, or cause freeze/thaw churn. | Leave off by default; record the OEM timing first and override only an app with a demonstrated need. |
+| R to M delay | Sets how long an app stays Running before Middle after leaving foreground. | Too short proxies components early; too long increases background activity. | Follow system first; if needed, begin around 10-30 seconds. |
+| M to F delay | Sets the wait from Middle to Frozen. | Too short can cause freeze/thaw churn; too long reduces savings. | Follow system first. Three seconds is aggressive and only suitable for validated apps. |
+
+### Block freeze sources
+
+Checking one means “do not let this mechanism freeze the app”; it does not make freezing
+more aggressive.
+
+| Setting | Effect | Possible impact | Recommendation |
+| --- | --- | --- | --- |
+| Normal state-machine freeze | Stops the normal R/M/F path at the final freeze gate. | Most background freezing is disabled and power use rises. | Leave off; adjust timing instead in most cases. |
+| Fast Freezer | Blocks the low-latency freezer entry. | The app can remain active longer after backgrounding. | Enable only when Fast Freezer is confirmed to break behavior. |
+| Super Freeze | Blocks stronger Super Freeze scenes. | Long-idle restrictions weaken and standby drain can rise. | Leave off by default. |
+| Preload freeze | Blocks the preload-specific freezer entry. | Preloaded processes may remain resident. | Use only for an app confirmed to follow this path. |
+
+### Preserve resources while frozen
+
+These settings bypass Hans proxying or cleanup for a resource. They do not guarantee
+that frozen threads can continue executing.
+
+| Setting | Effect | Possible impact | Recommendation |
+| --- | --- | --- | --- |
+| Network and existing connections | Preserves firewall allowance and established connections. | Traffic may continue and persistent sockets stay alive longer. | Use only for required keepalive connections; normally leave off when blocking Packet wakes. |
+| Service dispatch | Does not proxy Service events. | Services can cause more wakeups and background work. | Enable only when delayed services break required behavior. |
+| Job dispatch | Does not proxy JobScheduler work. | Maintenance tasks run more often. | Leave off; enable selectively for required synchronization. |
+| Broadcast delivery | Does not proxy broadcasts. | System and app broadcasts can wake the process frequently. | Leave off by default. |
+| Alarms and timers | Does not proxy Alarm events. | Periodic alarms return and create more wakeups. | Must stay off when throttling or blocking Alarm wakes; use for alarm-class apps only. |
+| Async Binder | Does not proxy corresponding Binder calls. | `W_AsyncBinder` and related wakes can return. | Leave off when the goal is to block Binder wakes. |
+| Sensors | Preserves sensor access. | Continuous sampling increases power use. | Use only for motion or health apps that require it. |
+| Location / GPS | Preserves location resources. | Location and radio power use can rise sharply. | Use only for navigation or track recording. |
+| WakeLock | Preserves app WakeLocks. | The device may fail to enter deep sleep. | Leave off unless proxying demonstrably interrupts required work. |
+| Audio | Preserves audio behavior. | Background audio and focus can remain active. | Enable selectively for music or calling apps. |
+| Bluetooth scan | Preserves Bluetooth scanning. | Scan power and callback volume increase. | Enable selectively for wearable or accessory apps. |
+
+### Block wake sources
+
+Checking one keeps that event from thawing an already frozen UID. New framework reasons
+that are not recognized map to **Other and future unknown reasons**.
+
+| Setting | Effect | Possible impact | Recommendation |
+| --- | --- | --- | --- |
+| Async Binder, including `W_AsyncBinder` | Rejects async Binder callbacks before native thaw. | Phone-state, observer, and other one-way callbacks are delayed. | Enable after logs confirm useless wakes; recommended for the validated QQ sample. |
+| Sync Binder | Prevents synchronous Binder from thawing the target. | The caller can block, time out, or fail. | High risk; leave off. |
+| Transaction Binder | Prevents transaction-style Binder thaw. | Cross-process features can fail. | Leave off unless a specific useless transaction is identified. |
+| Process signal | Prevents signal-triggered thaw. | Termination, diagnostics, or native recovery can be delayed. | High risk; leave off. |
+| Activity / Input | Prevents Activity, relaunch, and input thaw. | The user may be unable to open or operate the app. | Extreme risk; do not enable. |
+| Service / Bind / Restart | Prevents service start, bind, and restart thaw. | Push services, foreground services, or bindings can fail. | Leave off; test only for nonessential background services. |
+| Broadcast | Prevents broadcast-triggered thaw. | Push, system-state, and app events are delayed. | Test for non-communication apps; normally leave off for messaging. |
+| Content Provider | Prevents provider-access thaw. | Calling processes can block or fail queries. | High risk; leave off. |
+| Job / Sync | Prevents scheduled task and sync thaw. | Cloud sync, backup, and maintenance are deferred. | Suitable only for apps without required background sync. |
+| WakeLock | Prevents WorkSource/WakeLock attribution from thawing the app. | Background work that relies on the WakeLock can fail. | Enable when logs confirm useless WakeLock wakes. |
+| Audio / media / Bluetooth control | Prevents playback and control-event thaw. | Background playback, headset control, and calls can fail. | Leave off for media/calling apps; test by logs elsewhere. |
+| Connectivity / navigation / traffic | Prevents network-state and navigation-scene thaw. | Network changes and navigation state are not processed promptly. | Leave off by default. |
+| System scenes and lifecycle | Prevents screen, sleep-exit, Watchdog, and similar thaw. | Lifecycle recovery and system cleanup can break. | Extreme risk; do not enable. |
+| Other and future unknown reasons | Blocks every unclassified framework reason. | A required reason added by an OTA can also be blocked. | Leave off; use only for short diagnostic tests. |
+
+### Suggested profiles
+
+| Goal | Suggested configuration |
+| --- | --- |
+| Conservative observation | Follow OEM timing, Packet, and Alarm behavior; clear every checkbox and inspect logs first. |
+| Ordinary non-realtime app | Packet throttle at 60-300 seconds and Alarm throttle at 15 minutes; add Async Binder, Job/Sync, or WakeLock gates only when logs justify them. |
+| Aggressive policy for the validated QQ sample | Block Packet and Alarm, and check only Async Binder. Do not check Activity/Input, system scenes, Sync Binder, Provider, or Signal. Messages and VoIP can be delayed. |
+| App that must work continuously | Preserve only the required network, audio, location, or related resource first; use full Hans exemption only if selective preservation is insufficient. |
+
 ## Packet wake policy
 
-| Mode | Behavior |
-| --- | --- |
-| Follow system | Hans handles every Packet wake normally. |
-| Throttle | The first Packet wake is allowed; later events inside the configured cooldown are blocked. |
-| Block | Every `type=4` Packet wake for the matched UID is suppressed. |
+| Mode | Effect | Possible impact | Recommendation |
+| --- | --- | --- | --- |
+| Follow system | Hans handles every Packet wake normally. | Background packets can thaw the app frequently. | Use for messaging, VoIP, or initial testing. |
+| Throttle | The first Packet wake is allowed; later events inside the cooldown are blocked. | Messages and network work can be delayed inside the window. | Balanced option; begin around 60-300 seconds. |
+| Block | Every `type=4` Packet wake for the matched UID is suppressed. | Messaging, VoIP, and persistent-socket progress may wait for another wake or foreground launch. | Use only when background realtime communication is not required. |
+| Minimum wake interval | Sets the cooldown between allowed thaws in Throttle mode. | Longer values reduce wakes but increase network-event latency. | Start at 60-300 seconds; unused in Follow system and Block modes. |
+| Custom post-wake hold time | Overrides this Packet thaw's M-to-F refreeze delay. | Too short can refreeze before network work completes; too long expands the background execution window. | Leave off initially; after measuring task duration, start around 5-15 seconds. Unused in Block mode. |
 
 Blocking Packet wake can delay messages, VoIP signaling, socket progress, and other
 background network work. It does not drop packets at the firewall; it prevents that Hans
@@ -129,11 +212,13 @@ minutes and entered
 
 ## Alarm wake policy
 
-| Mode | Behavior |
-| --- | --- |
-| Follow system | Hans handles an expired Alarm normally. |
-| Throttle | The first Alarm wake is allowed; later events inside the cooldown remain proxied. |
-| Block | Matching Alarm delivery is suppressed before `reason=Alarm` can unfreeze the UID. |
+| Mode | Effect | Possible impact | Recommendation |
+| --- | --- | --- | --- |
+| Follow system | Hans handles an expired Alarm normally. | Periodic alarms can thaw the app frequently. | Use for alarms, calendars, health reminders, and other time-sensitive apps. |
+| Throttle | The first Alarm wake is allowed; later events inside the cooldown remain proxied. | Scheduled tasks are delayed inside the window. | Balanced option; the default cooldown is 15 minutes. |
+| Block | Matching Alarm delivery is suppressed before `reason=Alarm` can thaw the UID. | Background timers, reminders, or keepalive work may not execute. | Use for confirmed periodic wakes with no timing requirement. |
+| Minimum wake interval | Sets the cooldown between allowed Alarm thaws in Throttle mode. | Longer values cause more visible task coalescing or delay. | Keep the 15-minute default initially; unused in Follow system and Block modes. |
+| Custom post-wake hold time | Overrides this Alarm thaw's M-to-F refreeze delay. | Too short can interrupt scheduled work; too long lets periodic alarms create extra background activity. | Leave off initially; use only when a task needs a fixed window, starting around 10-30 seconds. Unused in Block mode. |
 
 This controls Alarm delivery for a frozen app; it does not delete alarms registered by
 the app. The separate "preserve alarms" resource option has the opposite purpose and
