@@ -1,9 +1,14 @@
 package io.github.whitewhale.hanspolicy.ui;
 
 import android.annotation.SuppressLint;
+import android.content.ActivityNotFoundException;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -15,13 +20,17 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -40,14 +49,25 @@ import java.util.List;
 
 @SuppressLint("SetTextI18n")
 public final class MainActivity extends AppCompatActivity {
+    private static final String STATE_NAVIGATION_ITEM = "navigation_item";
+    private static final String DEVELOPER_URL = "https://github.com/whitewhale0612";
+    private static final String REPOSITORY_URL =
+            "https://github.com/whitewhale0612/Oplus-Hans-Policy";
+
     private PolicyRepository repository;
     private RuleAdapter ruleAdapter;
     private MaterialSwitch masterSwitch;
-    private View statusBand;
+    private MaterialCardView statusBand;
     private View statusMarker;
     private TextView statusTitle;
     private TextView statusDetail;
     private TextView ruleCount;
+    private View homePage;
+    private View configPage;
+    private View settingsPage;
+    private BottomNavigationView bottomNavigation;
+    private OnBackPressedCallback navigationBackCallback;
+    private int selectedNavigationItem = R.id.nav_home;
     private boolean binding;
     private volatile List<String> installedPackages = Collections.emptyList();
 
@@ -60,6 +80,9 @@ public final class MainActivity extends AppCompatActivity {
 
         repository = new PolicyRepository(this);
         bindMainViews();
+        bindSystemInfo();
+        bindExternalLinks();
+        setupNavigation(savedInstanceState);
         loadInstalledPackages();
         render();
     }
@@ -70,6 +93,12 @@ public final class MainActivity extends AppCompatActivity {
         if (repository != null) {
             render();
         }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putInt(STATE_NAVIGATION_ITEM, selectedNavigationItem);
+        super.onSaveInstanceState(outState);
     }
 
     private void bindMainViews() {
@@ -99,6 +128,83 @@ public final class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void setupNavigation(Bundle savedInstanceState) {
+        homePage = findViewById(R.id.home_page);
+        configPage = findViewById(R.id.config_page);
+        settingsPage = findViewById(R.id.settings_page);
+        bottomNavigation = findViewById(R.id.bottom_navigation);
+
+        navigationBackCallback = new OnBackPressedCallback(false) {
+            @Override
+            public void handleOnBackPressed() {
+                bottomNavigation.setSelectedItemId(R.id.nav_home);
+            }
+        };
+        getOnBackPressedDispatcher().addCallback(this, navigationBackCallback);
+
+        bottomNavigation.setOnItemSelectedListener(item -> {
+            showPage(item.getItemId());
+            return true;
+        });
+        int initialItem = savedInstanceState == null
+                ? R.id.nav_home
+                : savedInstanceState.getInt(STATE_NAVIGATION_ITEM, R.id.nav_home);
+        bottomNavigation.setSelectedItemId(initialItem);
+        showPage(initialItem);
+    }
+
+    private void showPage(int itemId) {
+        int page = itemId == R.id.nav_config || itemId == R.id.nav_settings
+                ? itemId : R.id.nav_home;
+        selectedNavigationItem = page;
+        homePage.setVisibility(page == R.id.nav_home ? View.VISIBLE : View.GONE);
+        configPage.setVisibility(page == R.id.nav_config ? View.VISIBLE : View.GONE);
+        settingsPage.setVisibility(page == R.id.nav_settings ? View.VISIBLE : View.GONE);
+        navigationBackCallback.setEnabled(page != R.id.nav_home);
+    }
+
+    private void bindSystemInfo() {
+        String manufacturer = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.trim();
+        String model = Build.MODEL == null ? "" : Build.MODEL.trim();
+        String device = (manufacturer + " " + model).trim();
+        findTextView(R.id.device_model_value).setText(device);
+        findTextView(R.id.android_version_value).setText(getString(
+                R.string.android_version_value, Build.VERSION.RELEASE, Build.VERSION.SDK_INT));
+        findTextView(R.id.kernel_version_value).setText(
+                System.getProperty("os.version", "-"));
+        findTextView(R.id.system_build_value).setText(Build.DISPLAY);
+        findTextView(R.id.system_fingerprint_value).setText(Build.FINGERPRINT);
+        findTextView(R.id.module_version_value).setText(getString(
+                R.string.module_version_value, readVersionName()));
+    }
+
+    private void bindExternalLinks() {
+        findViewById(R.id.developer_link).setOnClickListener(view -> openUrl(DEVELOPER_URL));
+        findViewById(R.id.repository_link).setOnClickListener(view -> openUrl(REPOSITORY_URL));
+    }
+
+    private TextView findTextView(int id) {
+        return findViewById(id);
+    }
+
+    @SuppressWarnings("deprecation")
+    private String readVersionName() {
+        try {
+            String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return version == null || version.isEmpty() ? "-" : version;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return "-";
+        }
+    }
+
+    private void openUrl(String value) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(value)));
+        } catch (ActivityNotFoundException exception) {
+            Toast.makeText(this, R.string.open_link_failed, Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void applySystemBarInsets() {
         View root = findViewById(R.id.root);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
@@ -106,7 +212,7 @@ public final class MainActivity extends AppCompatActivity {
                     WindowInsetsCompat.Type.systemBars()
                             | WindowInsetsCompat.Type.displayCutout());
             view.setPadding(insets.left, insets.top, insets.right, insets.bottom);
-            return windowInsets;
+            return WindowInsetsCompat.CONSUMED;
         });
         ViewCompat.requestApplyInsets(root);
     }
@@ -145,19 +251,19 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showRuntimeStatus(boolean connected, String title, String detail) {
-        int containerAttr = connected
-                ? com.google.android.material.R.attr.colorPrimaryContainer
-                : com.google.android.material.R.attr.colorErrorContainer;
-        int contentAttr = connected
-                ? com.google.android.material.R.attr.colorOnPrimaryContainer
-                : com.google.android.material.R.attr.colorOnErrorContainer;
-        int markerAttr = connected
-                ? com.google.android.material.R.attr.colorPrimary
-                : com.google.android.material.R.attr.colorError;
-        int container = MaterialColors.getColor(statusBand, containerAttr);
-        int content = MaterialColors.getColor(statusBand, contentAttr);
-        int marker = MaterialColors.getColor(statusBand, markerAttr);
-        statusBand.setBackgroundColor(container);
+        int container = connected
+                ? ContextCompat.getColor(this, R.color.hans_success_container)
+                : MaterialColors.getColor(statusBand,
+                com.google.android.material.R.attr.colorErrorContainer);
+        int content = connected
+                ? ContextCompat.getColor(this, R.color.hans_on_success_container)
+                : MaterialColors.getColor(statusBand,
+                com.google.android.material.R.attr.colorOnErrorContainer);
+        int marker = connected
+                ? ContextCompat.getColor(this, R.color.hans_success)
+                : MaterialColors.getColor(statusBand,
+                com.google.android.material.R.attr.colorError);
+        statusBand.setCardBackgroundColor(container);
         statusMarker.setBackgroundTintList(ColorStateList.valueOf(marker));
         statusTitle.setTextColor(content);
         statusDetail.setTextColor(content);
@@ -165,6 +271,7 @@ public final class MainActivity extends AppCompatActivity {
         statusDetail.setText(detail);
     }
 
+    @SuppressWarnings("deprecation")
     private void showRuleDialog(PolicyRule existing) {
         View form = LayoutInflater.from(this).inflate(R.layout.dialog_rule, null, false);
         MaterialAutoCompleteTextView packageInput = form.findViewById(R.id.package_input);
@@ -356,11 +463,20 @@ public final class MainActivity extends AppCompatActivity {
 
     private List<String> queryInstalledPackages() {
         List<String> packages = new ArrayList<>();
-        for (ApplicationInfo info : getPackageManager().getInstalledApplications(0)) {
+        for (ApplicationInfo info : queryInstalledApplications()) {
             packages.add(info.packageName);
         }
         Collections.sort(packages);
         return packages;
+    }
+
+    @SuppressWarnings("deprecation")
+    private List<ApplicationInfo> queryInstalledApplications() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return getPackageManager().getInstalledApplications(
+                    PackageManager.ApplicationInfoFlags.of(0L));
+        }
+        return getPackageManager().getInstalledApplications(0);
     }
 
     private static void updatePacketWakeControls(int mode, View throttle,

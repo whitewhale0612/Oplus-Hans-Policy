@@ -21,4 +21,7 @@
     <color name="hans_surface_variant">#414943</color>
     <color name="hans_on_surface_variant">#C1C9C3</color>
     <color name="hans_outline">#8B938D</color>
+    <color name="hans_success">#6FDBA2</color>
+    <color name="hans_success_container">#0B5135</color>
+    <color name="hans_on_success_container">#C6F7DA</color>
 </resources>
