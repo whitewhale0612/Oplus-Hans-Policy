@@ -16,6 +16,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 
+import io.github.whitewhale.hanspolicy.BuildConfig;
 import io.github.whitewhale.hanspolicy.Constants;
 import io.github.whitewhale.hanspolicy.model.PolicyCodec;
 import io.github.whitewhale.hanspolicy.model.PolicyRule;
@@ -82,7 +83,9 @@ final class PolicyRuntime {
                 initialize((Context) systemContext, manager, summary, "system context");
             }
         } catch (Throwable throwable) {
-            XposedBridge.log("HansPolicy: early runtime init unavailable: " + throwable);
+            if (BuildConfig.RUNTIME_EVENT_LOGS) {
+                XposedBridge.log("HansPolicy: early runtime init unavailable: " + throwable);
+            }
         }
     }
 
@@ -93,7 +96,10 @@ final class PolicyRuntime {
                 initialize((Context) managerContext, manager, summary, source);
             }
         } catch (Throwable throwable) {
-            XposedBridge.log("HansPolicy: runtime init from " + source + " failed: " + throwable);
+            if (BuildConfig.RUNTIME_EVENT_LOGS) {
+                XposedBridge.log("HansPolicy: runtime init from " + source
+                        + " failed: " + throwable);
+            }
         }
     }
 
@@ -129,11 +135,15 @@ final class PolicyRuntime {
             try {
                 registerRefreshReceiver();
                 receiverRegistered = true;
-                XposedBridge.log("HansPolicy: runtime initialized from " + runtimeSource);
+                if (BuildConfig.RUNTIME_EVENT_LOGS) {
+                    XposedBridge.log("HansPolicy: runtime initialized from " + runtimeSource);
+                }
                 scheduleReload(0L);
             } catch (Throwable throwable) {
-                XposedBridge.log("HansPolicy: runtime services not ready, retrying: "
-                        + throwable);
+                if (BuildConfig.RUNTIME_EVENT_LOGS) {
+                    XposedBridge.log("HansPolicy: runtime services not ready, retrying: "
+                            + throwable);
+                }
                 scheduleRuntimeInit(INIT_RETRY_DELAY_MS);
             }
         }
@@ -159,16 +169,24 @@ final class PolicyRuntime {
     }
 
     static boolean isExempt(int uid, String packageName) {
-        PolicyRule rule = ruleFor(uid, packageName);
+        PolicySnapshot current = snapshot;
+        if (!current.hasFullExemptRules()) {
+            return false;
+        }
+        PolicyRule rule = ruleFor(current, uid, packageName);
         return rule != null && rule.isExempt();
     }
 
     static boolean shouldBlockFreeze(Object hansPackage, String from) {
+        PolicySnapshot current = snapshot;
+        if (!current.hasFreezeInterventions()) {
+            return false;
+        }
         try {
             int uid = (Integer) XposedHelpers.callMethod(hansPackage, "getUid");
             String packageName = (String) XposedHelpers.callMethod(
                     hansPackage, "getPkgName");
-            PolicyRule rule = ruleFor(uid, packageName);
+            PolicyRule rule = ruleFor(current, uid, packageName);
             if (rule == null) {
                 return false;
             }
@@ -195,12 +213,16 @@ final class PolicyRuntime {
     }
 
     static boolean shouldBypassProxy(Object action, int proxyFlag) {
+        PolicySnapshot current = snapshot;
+        if (!current.hasBypassProxyFlag(proxyFlag)) {
+            return false;
+        }
         try {
             Object hansPackage = XposedHelpers.getObjectField(action, "mHansPackage");
             int uid = (Integer) XposedHelpers.callMethod(hansPackage, "getUid");
             String packageName = (String) XposedHelpers.callMethod(
                     hansPackage, "getPkgName");
-            PolicyRule rule = ruleFor(uid, packageName);
+            PolicyRule rule = ruleFor(current, uid, packageName);
             return rule != null && rule.bypassesProxy(proxyFlag);
         } catch (Throwable throwable) {
             recordError("proxy policy", throwable);
@@ -209,25 +231,41 @@ final class PolicyRuntime {
     }
 
     static boolean shouldBypassWakeLock(Object hansPackage) {
-        PolicyRule rule = ruleForHansPackage(hansPackage);
+        PolicySnapshot current = snapshot;
+        if (!current.hasBypassProxyFlag(PolicyRule.PROXY_WAKELOCK)) {
+            return false;
+        }
+        PolicyRule rule = ruleForHansPackage(current, hansPackage);
         return rule != null && rule.bypassesProxy(PolicyRule.PROXY_WAKELOCK);
     }
 
     static boolean shouldKeepNetwork(Object hansPackage) {
-        PolicyRule rule = ruleForHansPackage(hansPackage);
+        PolicySnapshot current = snapshot;
+        if (!current.hasKeepNetworkRules()) {
+            return false;
+        }
+        PolicyRule rule = ruleForHansPackage(current, hansPackage);
         return rule != null && rule.keepsNetwork();
     }
 
     static boolean shouldKeepNetwork(int uid, String packageName) {
-        PolicyRule rule = ruleFor(uid, packageName);
+        PolicySnapshot current = snapshot;
+        if (!current.hasKeepNetworkRules()) {
+            return false;
+        }
+        PolicyRule rule = ruleFor(current, uid, packageName);
         return rule != null && rule.keepsNetwork();
     }
 
     static void overrideDelay(XC_MethodHook.MethodHookParam param, boolean mToF) {
+        PolicySnapshot current = snapshot;
+        if (!current.hasTimingOverrides()) {
+            return;
+        }
         try {
             int uid = (Integer) param.args[0];
             String packageName = (String) param.args[1];
-            PolicyRule rule = ruleFor(uid, packageName);
+            PolicyRule rule = ruleFor(current, uid, packageName);
             if (rule == null) {
                 return;
             }
@@ -246,18 +284,29 @@ final class PolicyRuntime {
     }
 
     static boolean shouldBlockPacketWake(int uid) {
-        PolicyRule rule = ruleForUid(uid);
+        PolicySnapshot current = snapshot;
+        return shouldBlockPacketWake(current, uid);
+    }
+
+    private static boolean shouldBlockPacketWake(PolicySnapshot current, int uid) {
+        if (!current.hasPacketWakeControls()) {
+            return false;
+        }
+        PolicyRule rule = ruleForUid(current, uid);
         if (rule == null || rule.packetWakeMode == PolicyRule.PACKET_WAKE_ALLOW) {
             return false;
         }
-        long now = SystemClock.elapsedRealtime();
         if (rule.blocksPacketWake()) {
-            logBlockedPacketWake(uid, rule.packageName, "blocked", now);
+            if (BuildConfig.RUNTIME_EVENT_LOGS) {
+                logBlockedPacketWake(uid, rule.packageName, "blocked",
+                        SystemClock.elapsedRealtime());
+            }
             return true;
         }
         if (!rule.throttlesPacketWake()) {
             return false;
         }
+        long now = SystemClock.elapsedRealtime();
         synchronized (LAST_PACKET_WAKE_MS) {
             Long lastWake = LAST_PACKET_WAKE_MS.get(uid);
             if (lastWake == null || now - lastWake >= rule.packetWakeCooldownMs) {
@@ -271,20 +320,23 @@ final class PolicyRuntime {
 
     static boolean shouldBlockKernelWake(int type, int callerPid, int callerUid,
                                          int targetUid, String rpcName, int code) {
+        PolicySnapshot current = snapshot;
         if (type == 4) {
-            return shouldBlockPacketWake(targetUid);
+            return shouldBlockPacketWake(current, targetUid);
         }
         int source = kernelWakeSource(type);
-        if (source == 0) {
+        if (source == 0 || !current.hasBlockedWakeSource(source)) {
             return false;
         }
-        PolicyRule rule = ruleForUid(targetUid);
+        PolicyRule rule = ruleForUid(current, targetUid);
         if (rule == null || !rule.blocksWake(source)) {
             return false;
         }
-        logBlockedWakeSource(targetUid, rule.packageName, source,
-                "kernel:" + kernelWakeName(type), rpcName + "/" + code
-                        + " caller=" + callerPid + "/" + callerUid);
+        if (BuildConfig.RUNTIME_EVENT_LOGS) {
+            logBlockedWakeSource(targetUid, rule.packageName, source,
+                    "kernel:" + kernelWakeName(type), rpcName + "/" + code
+                            + " caller=" + callerPid + "/" + callerUid);
+        }
         return true;
     }
 
@@ -293,11 +345,27 @@ final class PolicyRuntime {
         if ("force".equals(reason) && "HansPolicy".equals(cpnInfo)) {
             return false;
         }
+        PolicySnapshot current = snapshot;
+        int source = 0;
+        if ("Packet".equals(reason)) {
+            if (!current.hasPacketWakeBlocks()) {
+                return false;
+            }
+        } else if ("Alarm".equals(reason) || "Proxy2AlignAlarm".equals(reason)) {
+            if (!current.hasAlarmWakeBlocks()) {
+                return false;
+            }
+        } else {
+            source = hansWakeSource(reason);
+            if (!current.hasBlockedWakeSource(source)) {
+                return false;
+            }
+        }
         try {
             int uid = (Integer) XposedHelpers.callMethod(hansPackage, "getUid");
             String packageName = (String) XposedHelpers.callMethod(
                     hansPackage, "getPkgName");
-            PolicyRule rule = ruleFor(uid, packageName);
+            PolicyRule rule = ruleFor(current, uid, packageName);
             if (rule == null || rule.isExempt()) {
                 return false;
             }
@@ -307,7 +375,6 @@ final class PolicyRuntime {
             if ("Alarm".equals(reason) || "Proxy2AlignAlarm".equals(reason)) {
                 return rule.blocksAlarmWake();
             }
-            int source = hansWakeSource(reason);
             if (!rule.blocksWake(source)) {
                 return false;
             }
@@ -463,6 +530,9 @@ final class PolicyRuntime {
 
     private static void logBlockedWakeSource(int uid, String packageName, int source,
                                              String reason, String detail) {
+        if (!BuildConfig.RUNTIME_EVENT_LOGS) {
+            return;
+        }
         long now = SystemClock.elapsedRealtime();
         String key = uid + ":" + source;
         Long lastLog = LAST_WAKE_SOURCE_BLOCK_LOG_MS.get(key);
@@ -476,7 +546,11 @@ final class PolicyRuntime {
     }
 
     static boolean shouldBlockAlarmWake(int uid, String packageName, String action) {
-        PolicyRule rule = ruleFor(uid, packageName);
+        PolicySnapshot current = snapshot;
+        if (!current.hasAlarmWakeControls()) {
+            return false;
+        }
+        PolicyRule rule = ruleFor(current, uid, packageName);
         if (rule == null || rule.alarmWakeMode == PolicyRule.ALARM_WAKE_ALLOW) {
             return false;
         }
@@ -511,7 +585,11 @@ final class PolicyRuntime {
             ALARM_BROADCAST_BLOCK_UNTIL_MS.remove(uid, blockUntil);
             return false;
         }
-        PolicyRule rule = ruleFor(uid, packageName);
+        PolicySnapshot current = snapshot;
+        if (!current.hasAlarmWakeControls()) {
+            return false;
+        }
+        PolicyRule rule = ruleFor(current, uid, packageName);
         if (rule == null || rule.alarmWakeMode == PolicyRule.ALARM_WAKE_ALLOW) {
             return false;
         }
@@ -529,12 +607,18 @@ final class PolicyRuntime {
             ALARM_BROADCAST_BLOCK_UNTIL_MS.remove(uid, blockUntil);
             return false;
         }
-        PolicyRule rule = ruleForUid(uid);
+        PolicySnapshot current = snapshot;
+        if (!current.hasAlarmWakeControls()) {
+            return false;
+        }
+        PolicyRule rule = ruleForUid(current, uid);
         if (rule == null || rule.alarmWakeMode == PolicyRule.ALARM_WAKE_ALLOW) {
             return false;
         }
-        XposedBridge.log("HansPolicy: Alarm batch WakeLock unfreeze suppressed uid=" + uid
-                + " pkg=" + rule.packageName + " reason=" + reason);
+        if (BuildConfig.RUNTIME_EVENT_LOGS) {
+            XposedBridge.log("HansPolicy: Alarm batch WakeLock unfreeze suppressed uid=" + uid
+                    + " pkg=" + rule.packageName + " reason=" + reason);
+        }
         return true;
     }
 
@@ -542,33 +626,42 @@ final class PolicyRuntime {
         ALARM_BROADCAST_BLOCK_UNTIL_MS.put(uid, now + ALARM_BATCH_GATE_MS);
     }
 
-    private static PolicyRule ruleForHansPackage(Object hansPackage) {
+    private static PolicyRule ruleForHansPackage(PolicySnapshot current,
+                                                 Object hansPackage) {
         try {
             int uid = (Integer) XposedHelpers.callMethod(hansPackage, "getUid");
             String packageName = (String) XposedHelpers.callMethod(
                     hansPackage, "getPkgName");
-            return ruleFor(uid, packageName);
+            return ruleFor(current, uid, packageName);
         } catch (Throwable throwable) {
             recordError("package policy", throwable);
             return null;
         }
     }
 
-    private static PolicyRule ruleFor(int uid, String packageName) {
-        if (packageName == null) {
+    private static PolicyRule ruleFor(PolicySnapshot current, int uid,
+                                      String packageName) {
+        if (!current.hasEnabledRules() || packageName == null) {
+            return null;
+        }
+        PolicyRule rule = current.getEnabledRule(packageName);
+        if (rule == null) {
             return null;
         }
         if (uid >= 0) {
             OBSERVED_UIDS.computeIfAbsent(packageName,
                     ignored -> ConcurrentHashMap.newKeySet()).add(uid);
         }
-        return snapshot.getRule(packageName);
+        return rule;
     }
 
-    private static PolicyRule ruleForUid(int uid) {
+    private static PolicyRule ruleForUid(PolicySnapshot current, int uid) {
+        if (!current.hasEnabledRules()) {
+            return null;
+        }
         String packageName = packageNameFromHans(uid);
         if (packageName != null) {
-            PolicyRule rule = ruleFor(uid, packageName);
+            PolicyRule rule = ruleFor(current, uid, packageName);
             if (rule != null) {
                 return rule;
             }
@@ -580,7 +673,7 @@ final class PolicyRuntime {
             String[] packages = context.getPackageManager().getPackagesForUid(uid);
             if (packages != null) {
                 for (String candidate : packages) {
-                    PolicyRule rule = ruleFor(uid, candidate);
+                    PolicyRule rule = ruleFor(current, uid, candidate);
                     if (rule != null) {
                         return rule;
                     }
@@ -610,6 +703,9 @@ final class PolicyRuntime {
 
     private static void logBlockedPacketWake(int uid, String packageName,
                                              String action, long now) {
+        if (!BuildConfig.RUNTIME_EVENT_LOGS) {
+            return;
+        }
         Long lastLog = LAST_PACKET_BLOCK_LOG_MS.get(uid);
         if (lastLog != null && now - lastLog < PACKET_BLOCK_LOG_INTERVAL_MS) {
             return;
@@ -622,6 +718,9 @@ final class PolicyRuntime {
     private static void logBlockedAlarmWake(int uid, String packageName,
                                             String alarmAction, String policyAction,
                                             long now) {
+        if (!BuildConfig.RUNTIME_EVENT_LOGS) {
+            return;
+        }
         Long lastLog = LAST_ALARM_BLOCK_LOG_MS.get(uid);
         if (lastLog != null && now - lastLog < PACKET_BLOCK_LOG_INTERVAL_MS) {
             return;
@@ -633,6 +732,9 @@ final class PolicyRuntime {
 
     private static void logAlarmBatchBroadcastSuppressed(int uid, String packageName,
                                                          long now) {
+        if (!BuildConfig.RUNTIME_EVENT_LOGS) {
+            return;
+        }
         Long lastLog = LAST_ALARM_BATCH_BLOCK_LOG_MS.get(uid);
         if (lastLog != null && now - lastLog < PACKET_BLOCK_LOG_INTERVAL_MS) {
             return;
@@ -669,6 +771,7 @@ final class PolicyRuntime {
                 LAST_WAKE_SOURCE_BLOCK_LOG_MS.clear();
                 lastError = hookSummary == null ? "" : hookSummary.errorsText();
                 cleanupNewInterventions(previous, next);
+                OBSERVED_UIDS.clear();
                 reportStatus();
             } catch (Throwable throwable) {
                 recordError("policy reload", throwable);
@@ -725,7 +828,9 @@ final class PolicyRuntime {
                 }
             }
         } catch (Throwable throwable) {
-            XposedBridge.log("HansPolicy: user enumeration unavailable: " + throwable);
+            if (BuildConfig.RUNTIME_EVENT_LOGS) {
+                XposedBridge.log("HansPolicy: user enumeration unavailable: " + throwable);
+            }
         }
         PackageManager packageManager = context.getPackageManager();
         for (int userId : userIds) {
@@ -759,7 +864,9 @@ final class PolicyRuntime {
             context.getContentResolver().call(Constants.POLICY_URI,
                     Constants.METHOD_REPORT_STATUS, null, status);
         } catch (Throwable throwable) {
-            XposedBridge.log("HansPolicy: status report failed: " + throwable);
+            if (BuildConfig.RUNTIME_EVENT_LOGS) {
+                XposedBridge.log("HansPolicy: status report failed: " + throwable);
+            }
         }
     }
 
@@ -777,6 +884,8 @@ final class PolicyRuntime {
         String message = throwable.getMessage();
         lastError = operation + ": " + throwable.getClass().getSimpleName()
                 + (message == null ? "" : " (" + message + ")");
-        XposedBridge.log("HansPolicy: " + lastError);
+        if (BuildConfig.RUNTIME_EVENT_LOGS) {
+            XposedBridge.log("HansPolicy: " + lastError);
+        }
     }
 }

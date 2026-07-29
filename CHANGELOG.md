@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 - 2026-07-29
+
+- Precompute policy capability flags and return early from inactive Hook paths.
+- Observe UIDs only for enabled matching rules and clear observations after policy reload.
+- Add tests for the master switch, disabled rules, aggregate flags, and duplicate packages.
+- Disable high-frequency runtime event logs in Release while retaining full Debug diagnostics.
+- Avoid Release log string construction, rate-limit map writes, and unnecessary Packet clock reads.
+- Preserve the one-time Hook installation result and Hook installation errors in Release builds.
+
 ## 0.5.0 - 2026-07-29
 
 - Add configurable wake-source gates for Async/Sync/Transaction Binder, signals,

@@ -76,7 +76,7 @@ Binder 与 Packet、WakeLock 都不是同一条链。内核 `type=0` 回调命�
 | 系统 | Android 16 / API 36 |
 | 固件 | `PKX110_16.0.9.401(CN01)` |
 | 逆向样本 | 上述固件的 Oplus `oplus-services.jar` |
-| 当前源码版本 | `0.5.0`（`versionCode 7`） |
+| 当前源码版本 | `0.6.0`（`versionCode 8`） |
 | Hook 进程 | `android` / `system_server` |
 | 框架 | LSPosed API 82 兼容；同时在 Vector Framework 2.0 验证 |
 
@@ -86,17 +86,17 @@ Binder 与 Packet、WakeLock 都不是同一条链。内核 `type=0` 回调命�
 ## 安装
 
 1. 从 [最新 Release](https://github.com/whitewhale0612/Oplus-Hans-Policy/releases/latest)
-   下载 `HansPolicy-v0.4.0.apk`。
+   下载 `HansPolicy-v0.6.0.apk`。
    安装前核对 SHA-256：
 
    ```text
-   6e4ae5c1f47faaf561675cfb7d9eabe4e115b084f019d500124487e88beaea82
+   235c1ce6945042a3a0ffa6a40831aae6f2c432dbd09fc3517dbc5f8848e6a781
    ```
 
 2. 安装或覆盖更新：
 
    ```bash
-   adb install --no-incremental -r HansPolicy-v0.4.0.apk
+   adb install --no-incremental -r HansPolicy-v0.6.0.apk
    ```
 
 3. 在 LSPosed/Vector 中启用 **Hans Policy**。
@@ -225,7 +225,8 @@ Binder 与 Packet、WakeLock 都不是同一条链。内核 `type=0` 回调命�
 adb logcat -v time | grep -E 'HansPolicy|OplusHansManager'
 ```
 
-典型日志：
+Release 构建仅输出一次 Hook 安装结果和安装阶段错误，不输出 Packet、Alarm、Binder 等
+高频策略事件，以降低 system_server 开销。以下详细事件日志仅由 Debug 构建输出：
 
 ```text
 HansPolicy: installed 27 hooks
@@ -269,7 +270,7 @@ Windows：
 scripts\build.bat
 ```
 
-默认会执行 lint，并生成 `dist/HansPolicy-v0.5.0-debug.apk`。Xposed API 82 JAR 使用
+默认会执行 lint，并生成 `dist/HansPolicy-v0.6.0-debug.apk`。Xposed API 82 JAR 使用
 `compileOnly`，不会打入 APK。
 
 也可以直接执行：

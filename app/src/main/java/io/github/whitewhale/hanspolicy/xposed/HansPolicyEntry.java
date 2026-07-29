@@ -9,6 +9,7 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
+import io.github.whitewhale.hanspolicy.BuildConfig;
 import io.github.whitewhale.hanspolicy.Constants;
 import io.github.whitewhale.hanspolicy.model.PolicyRule;
 
@@ -21,7 +22,8 @@ public final class HansPolicyEntry implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam loadPackageParam) {
-        if ("android".equals(loadPackageParam.packageName)) {
+        if (BuildConfig.RUNTIME_EVENT_LOGS
+                && "android".equals(loadPackageParam.packageName)) {
             XposedBridge.log("HansPolicy: entry package=" + loadPackageParam.packageName
                     + " process=" + loadPackageParam.processName);
         }
@@ -40,8 +42,12 @@ public final class HansPolicyEntry implements IXposedHookLoadPackage {
         installPacketWakeHook(loadPackageParam.classLoader, summary);
         installAlarmWakeHook(loadPackageParam.classLoader, summary);
         installResourceHooks(loadPackageParam.classLoader, summary);
-        XposedBridge.log("HansPolicy: installed " + summary.count() + " hooks; "
-                + summary.targetsText());
+        if (BuildConfig.RUNTIME_EVENT_LOGS) {
+            XposedBridge.log("HansPolicy: installed " + summary.count() + " hooks; "
+                    + summary.targetsText());
+        } else {
+            XposedBridge.log("HansPolicy: installed " + summary.count() + " hooks");
+        }
         for (String error : summary.errors()) {
             XposedBridge.log("HansPolicy: " + error);
         }

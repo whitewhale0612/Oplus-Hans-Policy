@@ -76,7 +76,7 @@ The master switch is off on a clean install. Rules do not intervene until it is 
 | OS | Android 16 / API 36 |
 | ROM | `PKX110_16.0.9.401(CN01)` |
 | Framework classes | Oplus `oplus-services.jar` from the ROM above |
-| Current source | `0.5.0` (`versionCode 7`) |
+| Current source | `0.6.0` (`versionCode 8`) |
 | Hook target | `android` / `system_server` |
 | Framework | LSPosed API 82 compatible; also tested with Vector Framework 2.0 |
 
@@ -85,18 +85,18 @@ after every OTA before re-enabling the policy master switch.
 
 ## Install
 
-1. Download `HansPolicy-v0.4.0.apk` from the
+1. Download `HansPolicy-v0.6.0.apk` from the
    [latest release](https://github.com/whitewhale0612/Oplus-Hans-Policy/releases/latest).
    Verify its SHA-256 before installation:
 
    ```text
-   6e4ae5c1f47faaf561675cfb7d9eabe4e115b084f019d500124487e88beaea82
+   235c1ce6945042a3a0ffa6a40831aae6f2c432dbd09fc3517dbc5f8848e6a781
    ```
 
 2. Install or update it:
 
    ```bash
-   adb install --no-incremental -r HansPolicy-v0.4.0.apk
+   adb install --no-incremental -r HansPolicy-v0.6.0.apk
    ```
 
 3. Enable **Hans Policy** in LSPosed/Vector.
@@ -230,7 +230,9 @@ should not be enabled when the goal is to prevent periodic Alarm wakeups.
 adb logcat -v time | grep -E 'HansPolicy|OplusHansManager'
 ```
 
-Useful events include:
+Release builds log only the one-time hook installation result and installation errors.
+They omit high-frequency Packet, Alarm, Binder, and other policy-event logs to reduce
+system_server overhead. The detailed events below are available only in debug builds:
 
 ```text
 HansPolicy: installed 27 hooks
@@ -274,7 +276,7 @@ Windows:
 scripts\build.bat
 ```
 
-The default build runs lint and creates `dist/HansPolicy-v0.5.0-debug.apk`. The Xposed API
+The default build runs lint and creates `dist/HansPolicy-v0.6.0-debug.apk`. The Xposed API
 82 JAR is a `compileOnly` dependency and is not packaged into the APK.
 
 Manual Gradle build:
