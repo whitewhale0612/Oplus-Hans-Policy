@@ -55,7 +55,7 @@ Hans Policy 只修改 Oplus Hans 内部决策，不会：
 | 时序 | `OplusHansDBConfig.getRtoMCheckTime` | 按包覆盖 R 到 M。 |
 | 时序 | `OplusHansDBConfig.getMtoFCheckTime` | 按包覆盖 M 到 F、Packet 和 Alarm 专用时间。 |
 | 豁免 | `OplusHansManager.isHansCoreApp` | 组件策略豁免。 |
-| 豁免 | `OplusHansManager.isLcdOnNonRestrictPkg` | 标准状态机豁免。 |
+| 豁免 | `OplusHansManager.isLcdOnNonRestrictPkg` | 标准状态机豁免。旧固件缺少该方法时回退到 `OplusHansDBConfig.isHansWhitelistApp(int)`。 |
 | 冻结守门 | `HansCGroup.hansFreezeLocked` | 按来源阻止冻结且不伪造成功。 |
 | 解冻守门 | `HansCGroup.hansUnfreezeLocked` | 按 reason 最终拦截框架与场景解冻。 |
 | 内核唤醒 | `OplusHansManager.unfreezeForKernel` | 在 native thaw 前控制 Binder、Signal 和 Packet。 |
