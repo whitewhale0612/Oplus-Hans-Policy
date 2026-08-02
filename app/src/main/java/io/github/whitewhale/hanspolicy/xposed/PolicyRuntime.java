@@ -177,6 +177,15 @@ final class PolicyRuntime {
         return rule != null && rule.isExempt();
     }
 
+    static boolean isExemptUid(int uid) {
+        PolicySnapshot current = snapshot;
+        if (!current.hasFullExemptRules()) {
+            return false;
+        }
+        PolicyRule rule = ruleForUid(current, uid);
+        return rule != null && rule.isExempt();
+    }
+
     static boolean shouldBlockFreeze(Object hansPackage, String from) {
         PolicySnapshot current = snapshot;
         if (!current.hasFreezeInterventions()) {

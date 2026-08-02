@@ -61,7 +61,7 @@ The validated build installs 27 targets:
 | Timing | `OplusHansDBConfig.getRtoMCheckTime` | Per-package R to M delay. |
 | Timing | `OplusHansDBConfig.getMtoFCheckTime` | Per-package M to F, Packet, and Alarm-specific delay. |
 | Exemption | `OplusHansManager.isHansCoreApp` | Component-policy exemption. |
-| Exemption | `OplusHansManager.isLcdOnNonRestrictPkg` | Standard state-machine exemption. |
+| Exemption | `OplusHansManager.isLcdOnNonRestrictPkg` | Standard state-machine exemption. Falls back to `OplusHansDBConfig.isHansWhitelistApp(int)` on older firmware. |
 | Freeze gate | `HansCGroup.hansFreezeLocked` | Block selected sources without faking success. |
 | Unfreeze gate | `HansCGroup.hansUnfreezeLocked` | Final reason-based gate for framework and scene wakes. |
 | Kernel wake | `OplusHansManager.unfreezeForKernel` | Gate Binder, signal, and Packet callbacks before native thaw. |

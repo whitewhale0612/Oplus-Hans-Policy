@@ -177,8 +177,30 @@ public final class HansPolicyEntry implements IXposedHookLoadPackage {
                         }
                     });
             summary.addTarget("OplusHansManager.isLcdOnNonRestrictPkg");
-        } catch (Throwable throwable) {
-            summary.addError("non-restrict hook: " + brief(throwable));
+        } catch (Throwable modernFailure) {
+            installLegacyNonRestrictHook(loader, summary, modernFailure);
+        }
+    }
+
+    private static void installLegacyNonRestrictHook(ClassLoader loader,
+                                                     HookSummary summary,
+                                                     Throwable modernFailure) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.android.server.hans.OplusHansDBConfig", loader,
+                    "isHansWhitelistApp", int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            if (PolicyRuntime.isExemptUid((Integer) param.args[0])) {
+                                param.setResult(true);
+                            }
+                        }
+                    });
+            summary.addTarget("OplusHansDBConfig.isHansWhitelistApp(legacy non-restrict)");
+        } catch (Throwable legacyFailure) {
+            summary.addError("non-restrict hook: modern=" + brief(modernFailure)
+                    + "; legacy=" + brief(legacyFailure));
         }
     }
 
